@@ -1,0 +1,9 @@
+# Repozitoriyda hamma narsa LF bilan saqlanadi.
+# Bu Windows'da tahrirlangan skriptlar Linux serverda ishlashini kafolatlaydi
+# (CRLF bo'lsa: "bash: /bin/bash^M: bad interpreter" xatosi chiqadi).
+* text=auto eol=lf
+
+*.sh      text eol=lf
+*.service text eol=lf
+*.py      text eol=lf
+*.md      text eol=lf

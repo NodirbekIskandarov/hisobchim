@@ -1,0 +1,28 @@
+[Unit]
+Description=Hisobchi AI Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hisobchi
+Group=hisobchi
+WorkingDirectory=/opt/hisobchi
+EnvironmentFile=/opt/hisobchi/.env
+ExecStart=/opt/hisobchi/.venv/bin/python /opt/hisobchi/bot.py
+Restart=always
+RestartSec=10
+
+# Loglar journald'ga tushadi: journalctl -u hisobchi -f
+StandardOutput=journal
+StandardError=journal
+
+# Xavfsizlik cheklovlari
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/hisobchi
+
+[Install]
+WantedBy=multi-user.target
