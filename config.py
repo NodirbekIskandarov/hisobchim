@@ -54,6 +54,9 @@ QA_MAX_ROWS = int(os.getenv("QA_MAX_ROWS", "500"))
 MAX_RECEIPT_PARTS = int(os.getenv("MAX_RECEIPT_PARTS", "8"))
 # Bitta rasm uchun maksimal hajm (Anthropic API chegarasi ~5 MB).
 MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(4_500_000)))
+# Bitta PDF uchun maksimal hajm. Telegram botlar 20 MB gacha yuklab oladi,
+# base64 esa hajmni ~33% oshiradi (API so'rovi chegarasi 32 MB).
+MAX_PDF_BYTES = int(os.getenv("MAX_PDF_BYTES", str(15_000_000)))
 
 KIND_CHIQIM = "chiqim"
 KIND_KIRIM = "kirim"

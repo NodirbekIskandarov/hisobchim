@@ -326,7 +326,10 @@ def _receipt_system_prompt(today: date, parts: int) -> str:
     )
     return (
         "Sen o'zbek tilidagi shaxsiy moliya botining chek o'qish qismisan. "
-        "Chek rasmini diqqat bilan o'qib, undagi mahsulotlar ro'yxatini ajratib ol.\n\n"
+        "Berilgan chekni (rasm yoki PDF) diqqat bilan o'qib, undagi mahsulotlar "
+        "ro'yxatini ajratib ol.\n"
+        "PDF bir necha sahifadan iborat bo'lsa, hammasi BITTA chek deb hisobla va "
+        "barcha sahifalardagi mahsulotlarni bitta ro'yxatga yig'.\n\n"
         f"Bugungi sana: {today.isoformat()}.\n"
         f"Valyuta: {config.CURRENCY}.\n"
         + multi
@@ -347,25 +350,44 @@ def _receipt_system_prompt(today: date, parts: int) -> str:
         "'salomatlik'. Ishonching komil bo'lmasa 'boshqa chiqim' qo'y.\n"
         "- Chekda o'qilmaydigan qatorlar bo'lsa, o'qilganlarini qaytar — "
         "butun chekni tashlab yuborma.\n"
-        "- Rasm chek bo'lmasa (masalan oddiy surat) => oqildi=false va "
-        "izoh_matni'da qisqa tushuntirish.\n"
+        "- Fayl chek bo'lmasa (masalan oddiy surat yoki boshqa hujjat) => "
+        "oqildi=false va izoh_matni'da qisqa tushuntirish.\n"
     )
+
+
+PDF_MEDIA_TYPE = "application/pdf"
 
 
 def _receipt_content(
     images: list[tuple[str, str]], caption: str, note: str = ""
 ) -> list[dict[str, Any]]:
+    """Rasm va PDF qismlaridan API uchun kontent bloklarini yig'adi."""
     content: list[dict[str, Any]] = []
     parts = len(images)
     for idx, (data, media_type) in enumerate(images, start=1):
         if parts > 1:
             content.append({"type": "text", "text": f"--- Chekning {idx}-qismi ---"})
-        content.append(
-            {
-                "type": "image",
-                "source": {"type": "base64", "media_type": media_type, "data": data},
-            }
-        )
+        if media_type == PDF_MEDIA_TYPE:
+            # PDF Claude'ga alohida "document" bloki sifatida beriladi; ichida
+            # matn qatlami bo'lsa u to'g'ridan-to'g'ri o'qiladi (aniqroq),
+            # skanerlangan bo'lsa sahifalar rasm sifatida ko'riladi.
+            content.append(
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": PDF_MEDIA_TYPE,
+                        "data": data,
+                    },
+                }
+            )
+        else:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {"type": "base64", "media_type": media_type, "data": data},
+                }
+            )
 
     tail = "Shu chekni o'qib, mahsulotlar ro'yxatini qaytar."
     if caption.strip():

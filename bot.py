@@ -43,6 +43,7 @@ log = logging.getLogger("hisobchi")
 
 # Anthropic API qo'llaydigan rasm turlari.
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+PDF_TYPE = "application/pdf"
 
 # Albom (bir vaqtda yuborilgan bir nechta rasm) to'planishini kutish vaqti.
 ALBUM_WAIT_SECONDS = 3.0
@@ -405,34 +406,51 @@ _last_receipt: dict[int, dict] = {}
 
 
 class ImageError(Exception):
-    """Rasmni yuklab bo'lmadi — sabab foydalanuvchiga ko'rsatiladi."""
+    """Faylni yuklab bo'lmadi — sabab foydalanuvchiga ko'rsatiladi."""
 
 
-async def _download_image(context, message) -> tuple[str, str]:
-    """Telegram xabaridan rasmni (base64, media_type) ko'rinishida oladi."""
+def _guess_pdf(document) -> bool:
+    """Ba'zi mijozlar PDF'ni noto'g'ri MIME turi bilan yuboradi."""
+    name = (document.file_name or "").lower()
+    return (document.mime_type or "").lower() == PDF_TYPE or name.endswith(".pdf")
+
+
+async def _download_receipt_file(context, message) -> tuple[str, str]:
+    """Xabardan chek faylini (base64, media_type) ko'rinishida oladi.
+
+    Rasm ham, PDF ham qabul qilinadi.
+    """
     if message.photo:
         # photo[-1] — eng katta o'lchamdagi nusxa.
         tg_file = await context.bot.get_file(message.photo[-1].file_id)
         media_type = "image/jpeg"
+        limit = config.MAX_IMAGE_BYTES
     elif message.document:
-        media_type = (message.document.mime_type or "").lower()
-        if media_type not in SUPPORTED_IMAGE_TYPES:
+        doc = message.document
+        if _guess_pdf(doc):
+            media_type, limit = PDF_TYPE, config.MAX_PDF_BYTES
+        else:
+            media_type = (doc.mime_type or "").lower()
+            limit = config.MAX_IMAGE_BYTES
+            if media_type not in SUPPORTED_IMAGE_TYPES:
+                raise ImageError(
+                    "Bu fayl turi qo'llab-quvvatlanmaydi.\n"
+                    "Chekni rasm (JPG/PNG) yoki PDF ko'rinishida yuboring."
+                )
+        if (doc.file_size or 0) > limit:
             raise ImageError(
-                "Bu fayl turi qo'llab-quvvatlanmaydi. JPG yoki PNG yuboring."
+                f"Fayl juda katta ({(doc.file_size or 0) // 1_000_000} MB, "
+                f"chegara {limit // 1_000_000} MB)."
             )
-        if (message.document.file_size or 0) > config.MAX_IMAGE_BYTES:
-            raise ImageError(
-                "Rasm juda katta. Uni oddiy surat (Photo) sifatida yuboring — "
-                "Telegram o'zi kichraytiradi."
-            )
-        tg_file = await context.bot.get_file(message.document.file_id)
+        tg_file = await context.bot.get_file(doc.file_id)
     else:
-        raise ImageError("Rasm topilmadi.")
+        raise ImageError("Chek fayli topilmadi.")
 
     raw = bytes(await tg_file.download_as_bytearray())
-    if len(raw) > config.MAX_IMAGE_BYTES:
+    if len(raw) > limit:
         raise ImageError(
-            "Rasm juda katta. Uni oddiy surat (Photo) sifatida yuboring."
+            f"Fayl juda katta ({len(raw) // 1_000_000} MB, "
+            f"chegara {limit // 1_000_000} MB)."
         )
     return base64.standard_b64encode(raw).decode(), media_type
 
@@ -522,13 +540,13 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = message.caption or ""
 
     try:
-        image = await _download_image(context, message)
+        image = await _download_receipt_file(context, message)
     except ImageError as exc:
         await message.reply_text(f"⚠️ {exc}")
         return
     except Exception:
-        log.exception("Rasmni yuklab olishda xatolik")
-        await message.reply_text("⚠️ Rasmni yuklab olishda xatolik yuz berdi.")
+        log.exception("Chek faylini yuklab olishda xatolik")
+        await message.reply_text("⚠️ Faylni yuklab olishda xatolik yuz berdi.")
         return
 
     # 1) «Uzun chek» rejimi — qismlarni yig'amiz.
