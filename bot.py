@@ -249,15 +249,25 @@ COLLECT_MENU = ReplyKeyboardMarkup(
 )
 
 
-def entry_keyboard(tx_ids: list[int]) -> InlineKeyboardMarkup | None:
+def entry_keyboard(tx_ids: list[int], kind: str | None = None) -> InlineKeyboardMarkup | None:
     if len(tx_ids) == 1:
         tx = tx_ids[0]
-        return InlineKeyboardMarkup(
-            [[
-                InlineKeyboardButton("✏️ Kategoriya", callback_data=f"c:{tx}"),
-                InlineKeyboardButton("🗑 O'chirish", callback_data=f"d:{tx}"),
-            ]]
-        )
+        row = [
+            InlineKeyboardButton("✏️ Kategoriya", callback_data=f"c:{tx}"),
+            InlineKeyboardButton("🗑 O'chirish", callback_data=f"d:{tx}"),
+        ]
+        buttons = [row]
+        # Kirim/chiqim almashtirish faqat oddiy yozuvlar uchun — qarz turlari
+        # shaxs maydoniga bog'liq bo'lgani uchun bu yerda almashtirilmaydi.
+        if kind in (config.KIND_CHIQIM, config.KIND_KIRIM):
+            other = config.KIND_KIRIM if kind == config.KIND_CHIQIM else config.KIND_CHIQIM
+            buttons.append([
+                InlineKeyboardButton(
+                    f"🔄 {config.KIND_LABELS[other]}ga almashtirish",
+                    callback_data=f"t:{tx}",
+                )
+            ])
+        return InlineKeyboardMarkup(buttons)
     if tx_ids:
         payload = "D:" + ",".join(map(str, tx_ids))
         # Telegram callback_data uchun chegara — 64 bayt.
@@ -706,8 +716,10 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if day_total:
         body += f"\n\n<i>Bugungi chiqim: {reports.fmt_money(day_total)}</i>"
 
+    single_kind = parsed["yozuvlar"][0]["turi"] if len(saved_ids) == 1 else None
     await message.reply_text(
-        body, parse_mode=ParseMode.HTML, reply_markup=entry_keyboard(saved_ids)
+        body, parse_mode=ParseMode.HTML,
+        reply_markup=entry_keyboard(saved_ids, single_kind),
     )
 
 
@@ -825,14 +837,39 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             "✏️ Kategoriya yangilandi\n\n" + reports.transaction_line(row),
             parse_mode=ParseMode.HTML,
-            reply_markup=entry_keyboard([tx_id]),
+            reply_markup=entry_keyboard([tx_id], row["kind"]),
         )
         return
 
     if data.startswith("x:"):
         tx_id = int(data[2:])
+        row = db.get_transaction(user_id, tx_id)
         await query.answer()
-        await query.edit_message_reply_markup(entry_keyboard([tx_id]))
+        await query.edit_message_reply_markup(
+            entry_keyboard([tx_id], row["kind"] if row else None)
+        )
+        return
+
+    # --- Turini (kirim/chiqim) almashtirish ---
+
+    if data.startswith("t:"):
+        tx_id = int(data[2:])
+        row = db.get_transaction(user_id, tx_id)
+        if not row or row["kind"] not in (config.KIND_CHIQIM, config.KIND_KIRIM):
+            await query.answer("Bu yozuv turini almashtirib bo'lmaydi", show_alert=True)
+            return
+        new_kind = config.KIND_KIRIM if row["kind"] == config.KIND_CHIQIM else config.KIND_CHIQIM
+        new_category = config.fallback_category(new_kind)
+        db.update_kind(user_id, tx_id, new_kind, new_category)
+        await query.answer("Turi yangilandi")
+        row = db.get_transaction(user_id, tx_id)
+        await query.edit_message_text(
+            f"🔄 {config.KIND_LABELS[new_kind]}ga almashtirildi\n\n"
+            + reports.transaction_line(row)
+            + "\n\n<i>Kategoriyani ham to'g'rilash uchun «✏️ Kategoriya» bosing.</i>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=entry_keyboard([tx_id], new_kind),
+        )
         return
 
     await query.answer()

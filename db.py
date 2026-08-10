@@ -122,6 +122,17 @@ def update_category(user_id: int, tx_id: int, category: str) -> bool:
         return cur.rowcount > 0
 
 
+def update_kind(user_id: int, tx_id: int, kind: str, category: str) -> bool:
+    """Yozuv turini (kirim/chiqim) almashtiradi va kategoriyani shu turga mos
+    boshlang'ich qiymatga qaytaradi — eski kategoriya yangi turga to'g'ri kelmasligi mumkin."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE transactions SET kind = ?, category = ? WHERE id = ? AND user_id = ?",
+            (kind, category, tx_id, user_id),
+        )
+        return cur.rowcount > 0
+
+
 def settle_debt(user_id: int, tx_id: int) -> bool:
     with get_conn() as conn:
         cur = conn.execute(
