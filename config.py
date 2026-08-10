@@ -41,6 +41,19 @@ DB_PATH = os.getenv("DB_PATH", "hisobchi.db")
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
+# Qo'llab-quvvatlanadigan valyutalar. Har bir yozuv o'z valyutasida saqlanadi
+# va hisobotlarda ALOHIDA ko'rsatiladi — kurs orqali birlashtirilmaydi
+# (kurs vaqt bilan o'zgaradi, taxminiy konvertatsiya chalkashlik keltirib chiqaradi).
+CURRENCY_SOM = "som"
+CURRENCY_USD = "usd"
+SUPPORTED_CURRENCIES = [CURRENCY_SOM, CURRENCY_USD]
+CURRENCY_SYMBOLS = {CURRENCY_SOM: CURRENCY, CURRENCY_USD: "$"}
+
+
+def normalize_currency(value: str | None) -> str:
+    v = (value or "").strip().lower()
+    return v if v in SUPPORTED_CURRENCIES else CURRENCY_SOM
+
 # Faqat shu Telegram ID'lariga javob beradi. Bo'sh bo'lsa bot hech kimni kiritmaydi.
 ALLOWED_USER_IDS = _ids("ALLOWED_USER_IDS")
 

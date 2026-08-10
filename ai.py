@@ -66,6 +66,14 @@ RECORD_TOOL = {
                             "type": "number",
                             "description": "Musbat son, valyuta birligisiz (masalan 50000).",
                         },
+                        "valyuta": {
+                            "type": "string",
+                            "enum": config.SUPPORTED_CURRENCIES,
+                            "description": (
+                                "Xabarda \"$\", \"dollar\", \"USD\" kabi ishoralar bo'lsa "
+                                "'usd', aks holda har doim 'som'."
+                            ),
+                        },
                         "kategoriya": {
                             "type": "string",
                             "enum": config.ALL_CATEGORIES,
@@ -73,7 +81,12 @@ RECORD_TOOL = {
                         },
                         "izoh": {
                             "type": "string",
-                            "description": "Qisqa izoh, 1-4 so'z, o'zbek tilida. Masalan: 'tushlik'.",
+                            "description": (
+                                "Qisqa izoh, 1-4 so'z, o'zbek tilida. Masalan: 'tushlik'. "
+                                "Qarz uchun sababni yoz agar aytilgan bo'lsa (masalan "
+                                "'uy uchun', 'mashina taʼmiri') — shaxs ismini takrorlama, "
+                                "sabab aytilmagan bo'lsa 'qarz' deb qo'y."
+                            ),
                         },
                         "shaxs": {
                             "type": "string",
@@ -87,7 +100,7 @@ RECORD_TOOL = {
                             ),
                         },
                     },
-                    "required": ["turi", "summa", "kategoriya", "izoh", "sana"],
+                    "required": ["turi", "summa", "valyuta", "kategoriya", "izoh", "sana"],
                 },
             },
             "izoh_matni": {
@@ -105,8 +118,9 @@ RECORD_TOOL = {
 
 def _parse_system_prompt(today: date) -> str:
     thousands_rule = (
-        "- Birliksiz kichik son (1000 dan kichik) odatda mingni bildiradi: "
-        "\"obedga 50\" => 50000, \"taksi 20\" => 20000.\n"
+        "- Birliksiz kichik son (1000 dan kichik) odatda mingni bildiradi, "
+        "LEKIN FAQAT SO'M UCHUN: \"obedga 50\" => 50000 som, \"taksi 20\" => "
+        "20000 som. Dollar summasiga bu qoida qo'llanmaydi (pastga qarang).\n"
         if config.SMALL_NUMBERS_ARE_THOUSANDS
         else "- Sonlarni aynan yozilganidek ol, o'zingdan ko'paytirma.\n"
     )
@@ -115,7 +129,8 @@ def _parse_system_prompt(today: date) -> str:
         "Foydalanuvchining erkin yozilgan xabarini o'qib, undan kirim, chiqim va "
         "qarz yozuvlarini ajratib olasan.\n\n"
         f"Bugungi sana: {today.isoformat()}.\n"
-        f"Valyuta: {config.CURRENCY}.\n\n"
+        f"Standart valyuta: {config.CURRENCY} ('som'). Ikkinchi qo'llab-quvvatlanadigan "
+        "valyuta: AQSH dollari ('usd').\n\n"
         "Qoidalar:\n"
         "- Har doim yozuvlarni_qaytar asbobini chaqir, oddiy matn bilan javob berma.\n"
         "- Bitta xabarda bir nechta amaliyot bo'lishi mumkin — har birini alohida "
@@ -125,6 +140,11 @@ def _parse_system_prompt(today: date) -> str:
         + thousands_rule
         + "- Bo'sh joy yoki nuqta bilan ajratilgan raqamlarni to'g'ri o'qi: "
         "\"1 200 000\" => 1200000.\n"
+        "- VALYUTANI ANIQLASH: agar summa oldida/yonida \"$\", \"dollar\", "
+        "\"dollarda\", \"USD\" so'zlari bo'lsa => valyuta=\"usd\" va sonni "
+        "AYNAN YOZILGANIDEK ol, ming qoidasini QO'LLAMA — \"$100\" => 100 (usd), "
+        "\"50 dollar\" => 50 (usd), \"200 dollar oylik berdim\" => 200 (usd). "
+        "Aks holda valyuta=\"som\" va yuqoridagi ming/million qoidalari amal qiladi.\n"
         "- Turini PUL OQIMI YO'NALISHIGA qarab aniqla, alohida fe'lga qarab emas — "
         "butun jumla mazmunini o'qi. Savolni shunday qo'y: pul SIZDAN chiqyaptimi "
         "yoki SIZGA kelyaptimi?\n"
@@ -226,6 +246,7 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
             {
                 "turi": kind,
                 "summa": round(amount, 2),
+                "valyuta": config.normalize_currency(item.get("valyuta")),
                 "kategoriya": config.normalize_category(kind, item.get("kategoriya")),
                 "izoh": (item.get("izoh") or "").strip()[:120],
                 "shaxs": person,
@@ -609,7 +630,11 @@ QA_SYSTEM = (
     "sonlarni O'ZING QAYTA QO'SHMA, tayyorini ol.\n"
     "- Faqat tayyor jamlanmada yo'q narsani hisoblashing kerak bo'lsa, "
     "qo'shishni bosqichma-bosqich va diqqat bilan bajar.\n"
-    "- Sonlarni o'qishga qulay yoz: 1 250 000 so'm.\n"
+    "- MUHIM: som va dollar summalarini HECH QACHON bir-biriga qo'shma yoki "
+    "taqqoslama — kurs berilmagan, taxminiy konvertatsiya noto'g'ri javobga "
+    "olib keladi. Agar foydalanuvchida ikkala valyutada ham yozuv bo'lsa, "
+    "javobda ikkalasini ALOHIDA ko'rsat (masalan \"5 000 000 so'm va $200\").\n"
+    "- Sonlarni o'qishga qulay yoz: 1 250 000 so'm yoki $250.\n"
     "- Ma'lumot yetarli bo'lmasa, buni ochiq ayt va nimasi yetishmayotganini tushuntir.\n"
     "- Javob 6 qatordan oshmasin. Ortiqcha muqaddima yozma.\n"
     "- Oddiy matn bilan yoz: markdown belgilari (**, *, #, `) ishlatma — "
@@ -625,6 +650,7 @@ def _rows_to_json(rows) -> str:
             "sana": r["occurred_on"],
             "turi": r["kind"],
             "summa": r["amount"],
+            "valyuta": r["currency"] if "currency" in r.keys() else "som",
             "kategoriya": r["category"],
             "izoh": r["note"],
             "shaxs": r["person"],
@@ -635,32 +661,43 @@ def _rows_to_json(rows) -> str:
 
 
 def _aggregate(rows) -> dict[str, Any]:
-    """Jamlanmalarni Python hisoblaydi — AI arifmetikasiga tayanmaslik uchun."""
-    by_kind: dict[str, float] = {}
-    by_category: dict[str, float] = {}
-    by_day: dict[str, float] = {}
-    count_by_category: dict[str, int] = {}
+    """Jamlanmalarni Python hisoblaydi — AI arifmetikasiga tayanmaslik uchun.
+
+    Valyutalar ALOHIDA jamlanadi (som va usd birlashtirilmaydi — kurs yo'q,
+    aralashtirish noto'g'ri jamiga olib keladi)."""
+    per_currency: dict[str, dict[str, Any]] = {}
 
     for r in rows:
+        cur = r["currency"] if "currency" in r.keys() else "som"
+        bucket = per_currency.setdefault(cur, {
+            "by_kind": {}, "by_category": {}, "by_day": {}, "count_by_category": {},
+        })
         kind, amount = r["kind"], float(r["amount"])
-        by_kind[kind] = round(by_kind.get(kind, 0.0) + amount, 2)
+        bucket["by_kind"][kind] = round(bucket["by_kind"].get(kind, 0.0) + amount, 2)
         if kind == config.KIND_CHIQIM:
             cat = r["category"]
-            by_category[cat] = round(by_category.get(cat, 0.0) + amount, 2)
-            count_by_category[cat] = count_by_category.get(cat, 0) + 1
+            bucket["by_category"][cat] = round(bucket["by_category"].get(cat, 0.0) + amount, 2)
+            bucket["count_by_category"][cat] = bucket["count_by_category"].get(cat, 0) + 1
             day = r["occurred_on"]
-            by_day[day] = round(by_day.get(day, 0.0) + amount, 2)
+            bucket["by_day"][day] = round(bucket["by_day"].get(day, 0.0) + amount, 2)
+
+    valyutalar_boyicha = {
+        cur: {
+            "turlar_boyicha_jami": b["by_kind"],
+            "chiqim_kategoriyalari_boyicha_jami": dict(
+                sorted(b["by_category"].items(), key=lambda kv: kv[1], reverse=True)
+            ),
+            "chiqim_kategoriyalari_boyicha_soni": b["count_by_category"],
+            "kunlar_boyicha_chiqim": dict(sorted(b["by_day"].items())),
+        }
+        for cur, b in per_currency.items()
+    }
 
     dates = [r["occurred_on"] for r in rows]
     return {
         "yozuvlar_soni": len(rows),
         "davr": {"boshi": min(dates), "oxiri": max(dates)} if dates else None,
-        "turlar_boyicha_jami": by_kind,
-        "chiqim_kategoriyalari_boyicha_jami": dict(
-            sorted(by_category.items(), key=lambda kv: kv[1], reverse=True)
-        ),
-        "chiqim_kategoriyalari_boyicha_soni": count_by_category,
-        "kunlar_boyicha_chiqim": dict(sorted(by_day.items())),
+        "valyutalar_boyicha": valyutalar_boyicha,
     }
 
 
@@ -671,7 +708,7 @@ async def answer_question(question: str, rows, today: date | None = None) -> str
 
     content = (
         f"Bugungi sana: {today.isoformat()}\n"
-        f"Valyuta: {config.CURRENCY}\n\n"
+        f"Valyutalar: som ({config.CURRENCY}) va usd ($) — alohida-alohida.\n\n"
         f"Tayyor jamlanmalar (dastur aniq hisoblagan):\n"
         f"{json.dumps(_aggregate(rows), ensure_ascii=False, indent=1)}\n\n"
         f"Yozuvlar (JSON):\n{_rows_to_json(rows)}\n\n"

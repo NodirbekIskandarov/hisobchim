@@ -26,8 +26,12 @@ def today() -> date:
     return datetime.now(config.TZ).date()
 
 
-def fmt_money(value: float) -> str:
-    """1250000 -> "1 250 000 so'm" """
+def fmt_money(value: float, currency: str = "som") -> str:
+    """1250000 -> "1 250 000 so'm"; USD uchun 99.5 -> "$99.5" """
+    if currency == config.CURRENCY_USD:
+        v = round(float(value), 2)
+        text = f"{v:,.2f}".rstrip("0").rstrip(".") if v % 1 else f"{int(v):,}"
+        return f"${text.replace(',', ' ')}"
     rounded = round(float(value))
     return f"{rounded:,}".replace(",", " ") + f" {config.CURRENCY}"
 
@@ -67,44 +71,69 @@ def _bar(share: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def summary_text(user_id: int, period: str) -> str:
-    start, end, label = period_range(period)
-    t = db.totals(user_id, start, end)
+def _currency_block(user_id: int, start: date, end: date, currency: str, days: int) -> list[str]:
+    """Bitta valyuta uchun kirim/chiqim/farq va kategoriyalar bloki."""
+    t = db.totals(user_id, start, end, currency)
     kirim = t[config.KIND_KIRIM]
     chiqim = t[config.KIND_CHIQIM]
     balans = kirim - chiqim
+    qarz_berdim = t[config.KIND_QARZ_BERDIM]
+    qarz_oldim = t[config.KIND_QARZ_OLDIM]
 
-    lines = [f"📊 <b>{esc(label)}</b>", ""]
-    lines.append(f"🔺 Kirim:  {fmt_money(kirim)}")
-    lines.append(f"🔻 Chiqim: {fmt_money(chiqim)}")
-    lines.append(f"{'🟢' if balans >= 0 else '🔴'} Farq:   {fmt_money(balans)}")
+    lines: list[str] = []
+    lines.append(f"🔺 Kirim:  {fmt_money(kirim, currency)}")
+    lines.append(f"🔻 Chiqim: {fmt_money(chiqim, currency)}")
+    lines.append(f"{'🟢' if balans >= 0 else '🔴'} Farq:   {fmt_money(balans, currency)}")
 
-    cats = db.by_category(user_id, start, end, config.KIND_CHIQIM)
+    cats = db.by_category(user_id, start, end, config.KIND_CHIQIM, currency)
     if cats:
         lines.append("")
         lines.append("<b>Chiqim kategoriyalari:</b>")
         for name, total, cnt in cats[:8]:
             share = total / chiqim if chiqim else 0
             icon = config.CATEGORY_ICONS.get(name, "•")
-            lines.append(f"{icon} {esc(name)} — {fmt_money(total)} ({share * 100:.0f}%)")
+            lines.append(f"{icon} {esc(name)} — {fmt_money(total, currency)} ({share * 100:.0f}%)")
             lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
 
-    qarz_berdim = t[config.KIND_QARZ_BERDIM]
-    qarz_oldim = t[config.KIND_QARZ_OLDIM]
     if qarz_berdim or qarz_oldim:
         lines.append("")
         if qarz_berdim:
-            lines.append(f"📤 Qarz berdim: {fmt_money(qarz_berdim)}")
+            lines.append(f"📤 Qarz berdim: {fmt_money(qarz_berdim, currency)}")
         if qarz_oldim:
-            lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim)}")
+            lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim, currency)}")
 
-    if not cats and not kirim and not qarz_berdim and not qarz_oldim:
+    if chiqim and days >= 2:
+        lines.append("")
+        lines.append(f"<i>Kuniga o'rtacha: {fmt_money(chiqim / days, currency)}</i>")
+
+    return lines
+
+
+def summary_text(user_id: int, period: str) -> str:
+    start, end, label = period_range(period)
+    days = (end - start).days + 1
+    by_currency = db.totals_by_currency(user_id, start, end)
+
+    other_currencies = [c for c in by_currency if c != "som"]
+    som_empty = all(v == 0 for v in by_currency.get("som", {}).values())
+
+    lines = [f"📊 <b>{esc(label)}</b>", ""]
+    if not (som_empty and other_currencies):
+        # Faqat boshqa valyutada yozuv bo'lsa, bo'sh so'm blokini ko'rsatmaymiz.
+        lines += _currency_block(user_id, start, end, "som", days)
+
+    # Boshqa valyutalar (masalan USD) bo'lsa — alohida blok, kurs orqali
+    # qo'shilmaydi, chunki kurs vaqt bilan o'zgaradi va chalkashlik keltirib chiqaradi.
+    for currency in other_currencies:
+        label_txt = config.CURRENCY_SYMBOLS.get(currency, currency.upper())
+        if lines[-1] != "":
+            lines.append("")
+        lines.append(f"<b>{esc(label_txt)} bo'yicha:</b>")
+        lines += _currency_block(user_id, start, end, currency, days)
+
+    if som_empty and not other_currencies:
         lines.append("")
         lines.append("<i>Bu davrda yozuv yo'q.</i>")
-    elif chiqim and (end - start).days >= 2:
-        days = (end - start).days + 1
-        lines.append("")
-        lines.append(f"<i>Kuniga o'rtacha: {fmt_money(chiqim / days)}</i>")
 
     return "\n".join(lines)
 
@@ -115,8 +144,9 @@ def transaction_line(row, with_id: bool = True) -> str:
     note = row["note"] or row["category"]
     person = f" — {esc(row['person'])}" if row["person"] else ""
     tail = f" <code>#{row['id']}</code>" if with_id else ""
+    currency = row["currency"] if "currency" in row.keys() else "som"
     return (
-        f"{icon} {fmt_money(row['amount'])} · {cat_icon} {esc(note)}{person}"
+        f"{icon} {fmt_money(row['amount'], currency)} · {cat_icon} {esc(note)}{person}"
         f" · <i>{fmt_date(row['occurred_on'])}</i>{tail}"
     )
 
@@ -147,12 +177,20 @@ def debts_text(user_id: int) -> str:
     ):
         if not group:
             continue
-        total = sum(r["amount"] for r in group)
-        lines.append(f"{title} — {fmt_money(total)}")
+        # Valyutalar aralashtirilmaydi — har biri uchun alohida jami.
+        by_currency: dict[str, float] = {}
+        for r in group:
+            cur = r["currency"] if "currency" in r.keys() else "som"
+            by_currency[cur] = by_currency.get(cur, 0.0) + r["amount"]
+        totals_str = " + ".join(
+            fmt_money(v, c) for c, v in sorted(by_currency.items(), key=lambda kv: kv[0] != "som")
+        )
+        lines.append(f"{title} — {totals_str}")
         for r in group:
             who = esc(r["person"] or "noma'lum")
+            cur = r["currency"] if "currency" in r.keys() else "som"
             lines.append(
-                f"   • {who}: {fmt_money(r['amount'])}"
+                f"   • {who}: {fmt_money(r['amount'], cur)}"
                 f" ({fmt_date(r['occurred_on'])}) <code>#{r['id']}</code>"
             )
         lines.append("")
@@ -228,8 +266,9 @@ def receipt_items_text(rows) -> str:
     lines = [f"🧾 <b>To'liq ro'yxat</b> — {len(rows)} ta", ""]
     for r in rows:
         icon = config.CATEGORY_ICONS.get(r["category"], "•")
+        cur = r["currency"] if "currency" in r.keys() else "som"
         lines.append(
-            f"{icon} {esc(r['note'] or r['category'])} — {fmt_money(r['amount'])}"
+            f"{icon} {esc(r['note'] or r['category'])} — {fmt_money(r['amount'], cur)}"
             f" <code>#{r['id']}</code>"
         )
     lines.append("")
@@ -241,11 +280,12 @@ def saved_text(rows: list[dict]) -> str:
     """Saqlangandan keyin ko'rsatiladigan tasdiq matni."""
     if len(rows) == 1:
         r = rows[0]
+        cur = r.get("valyuta", "som")
         icon = config.KIND_ICONS[r["turi"]]
         cat_icon = config.CATEGORY_ICONS.get(r["kategoriya"], "")
         body = [
             f"{icon} <b>{esc(config.KIND_LABELS[r['turi']])}</b> saqlandi",
-            f"💵 {fmt_money(r['summa'])}",
+            f"💵 {fmt_money(r['summa'], cur)}",
             f"{cat_icon} {esc(r['kategoriya'])}",
         ]
         if r.get("izoh"):
@@ -259,5 +299,5 @@ def saved_text(rows: list[dict]) -> str:
     for r in rows:
         icon = config.KIND_ICONS[r["turi"]]
         note = r.get("izoh") or r["kategoriya"]
-        lines.append(f"{icon} {fmt_money(r['summa'])} · {esc(note)}")
+        lines.append(f"{icon} {fmt_money(r['summa'], r.get('valyuta', 'som'))} · {esc(note)}")
     return "\n".join(lines)

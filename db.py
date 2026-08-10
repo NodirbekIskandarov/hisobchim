@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     raw_text     TEXT    NOT NULL DEFAULT '',
     settled      INTEGER NOT NULL DEFAULT 0,
     receipt_id   TEXT,
+    currency     TEXT    NOT NULL DEFAULT 'som',
     created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -34,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_tx_user_kind ON transactions(user_id, kind);
 # jadvalni o'zgartirmaydi, shuning uchun qo'lda tekshiramiz.
 MIGRATIONS = [
     ("receipt_id", "ALTER TABLE transactions ADD COLUMN receipt_id TEXT"),
+    ("currency", "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'som'"),
 ]
 
 
@@ -75,15 +77,17 @@ def add_transaction(
     occurred_on: str | None = None,
     raw_text: str = "",
     receipt_id: str | None = None,
+    currency: str = "som",
 ) -> int:
     occurred_on = occurred_on or date.today().isoformat()
     with get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO transactions
-               (user_id, kind, amount, category, note, person, occurred_on, raw_text, receipt_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (user_id, kind, amount, category, note, person, occurred_on,
+                raw_text, receipt_id, currency)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, kind, float(amount), category, note, person,
-             occurred_on, raw_text, receipt_id),
+             occurred_on, raw_text, receipt_id, currency),
         )
         return int(cur.lastrowid)
 
@@ -95,11 +99,12 @@ def add_many(rows: list[dict]) -> list[int]:
         for r in rows:
             cur = conn.execute(
                 """INSERT INTO transactions
-                   (user_id, kind, amount, category, note, person, occurred_on, raw_text, receipt_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (user_id, kind, amount, category, note, person, occurred_on,
+                    raw_text, receipt_id, currency)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (r["user_id"], r["kind"], float(r["amount"]), r["category"],
                  r.get("note", ""), r.get("person"), r["occurred_on"],
-                 r.get("raw_text", ""), r.get("receipt_id")),
+                 r.get("raw_text", ""), r.get("receipt_id"), r.get("currency", "som")),
             )
             ids.append(int(cur.lastrowid))
     return ids
@@ -173,30 +178,44 @@ def list_range(
         return cur.fetchall()
 
 
-def totals(user_id: int, start: date, end: date) -> dict[str, float]:
+def totals(user_id: int, start: date, end: date, currency: str = "som") -> dict[str, float]:
+    """Bitta valyutadagi turlar bo'yicha jami — orqaga moslik uchun saqlangan."""
+    return totals_by_currency(user_id, start, end).get(
+        currency, {k: 0.0 for k in config.KINDS}
+    )
+
+
+def totals_by_currency(user_id: int, start: date, end: date) -> dict[str, dict[str, float]]:
+    """{valyuta: {turi: summa}} — valyutalar birlashtirilmaydi (kurs yo'q)."""
     with get_conn() as conn:
         cur = conn.execute(
-            """SELECT kind, COALESCE(SUM(amount), 0) AS total
+            """SELECT kind, currency, COALESCE(SUM(amount), 0) AS total
                FROM transactions
                WHERE user_id = ? AND occurred_on BETWEEN ? AND ?
-               GROUP BY kind""",
+               GROUP BY kind, currency""",
             (user_id, start.isoformat(), end.isoformat()),
         )
-        result = {k: 0.0 for k in config.KINDS}
+        result: dict[str, dict[str, float]] = {
+            "som": {k: 0.0 for k in config.KINDS}
+        }
         for row in cur.fetchall():
-            result[row["kind"]] = float(row["total"])
+            bucket = result.setdefault(row["currency"], {k: 0.0 for k in config.KINDS})
+            bucket[row["kind"]] = float(row["total"])
         return result
 
 
-def by_category(user_id: int, start: date, end: date, kind: str) -> list[tuple[str, float, int]]:
+def by_category(
+    user_id: int, start: date, end: date, kind: str, currency: str = "som"
+) -> list[tuple[str, float, int]]:
     with get_conn() as conn:
         cur = conn.execute(
             """SELECT category, SUM(amount) AS total, COUNT(*) AS cnt
                FROM transactions
-               WHERE user_id = ? AND kind = ? AND occurred_on BETWEEN ? AND ?
+               WHERE user_id = ? AND kind = ? AND currency = ?
+                 AND occurred_on BETWEEN ? AND ?
                GROUP BY category
                ORDER BY total DESC""",
-            (user_id, kind, start.isoformat(), end.isoformat()),
+            (user_id, kind, currency, start.isoformat(), end.isoformat()),
         )
         return [(r["category"], float(r["total"]), int(r["cnt"])) for r in cur.fetchall()]
 

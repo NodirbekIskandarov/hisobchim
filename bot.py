@@ -56,6 +56,7 @@ HELP_TEXT = """👋 <b>Shaxsiy hisobchi</b>
 • <code>oylik tushdi 8 mln</code>
 • <code>Aliga 500 ming qarz berdim</code>
 • <code>kecha dorixonaga 90 ming</code>
+• <code>Diyorga 100 dollar oylik berdim</code> — dollar ham qo'llab-quvvatlanadi
 
 <b>2. Chek rasmini yuboring</b> 📷
 Chekdagi har bir mahsulot o'qilib, kategoriyalarga ajratilib bazaga
@@ -96,6 +97,11 @@ kategoriyani o'zi aniqlaydi.
 • <code>mln</code>, <code>million</code>, <code>lim</code> = 1 000 000 → <code>1.5 mln</code>
 • Bo'sh joy bilan → <code>1 200 000</code>
 • Birliksiz kichik son ming deb olinadi → <code>obedga 50</code> = 50 000
+
+<b>Dollar bilan yozish:</b>
+<code>$100</code>, <code>50 dollar</code>, <code>200 dollar oylik berdim</code>
+→ ming qoidasi qo'llanmaydi, son aynan yoziladi. Hisobotlarda so'm va
+dollar alohida-alohida ko'rsatiladi (kurs orqali qo'shilmaydi).
 
 <b>Bitta xabarda bir nechta yozuv:</b>
 <code>taksi 20k, kofe 25 ming, non 8 ming</code>
@@ -387,11 +393,13 @@ async def cmd_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(
-        ["id", "sana", "turi", "summa", "kategoriya", "izoh", "shaxs", "yopilgan", "chek"]
+        ["id", "sana", "turi", "summa", "valyuta", "kategoriya", "izoh",
+         "shaxs", "yopilgan", "chek"]
     )
     for r in rows:
         writer.writerow([
             r["id"], r["occurred_on"], r["kind"], r["amount"],
+            r["currency"] if "currency" in r.keys() else "som",
             r["category"], r["note"], r["person"] or "", r["settled"],
             r["receipt_id"] or "",
         ])
@@ -705,16 +713,22 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             person=item["shaxs"],
             occurred_on=item["sana"],
             raw_text=text,
+            currency=item["valyuta"],
         )
         saved_ids.append(tx_id)
 
     body = reports.saved_text(parsed["yozuvlar"])
 
-    # Bugungi umumiy chiqim — qisqa kontekst uchun
+    # Bugungi umumiy chiqim — qisqa kontekst uchun, har bir valyuta alohida
     start, end, _ = reports.period_range("bugun")
-    day_total = db.totals(user_id, start, end)[config.KIND_CHIQIM]
-    if day_total:
-        body += f"\n\n<i>Bugungi chiqim: {reports.fmt_money(day_total)}</i>"
+    day_by_currency = db.totals_by_currency(user_id, start, end)
+    day_parts = [
+        reports.fmt_money(amounts[config.KIND_CHIQIM], cur)
+        for cur, amounts in day_by_currency.items()
+        if amounts[config.KIND_CHIQIM]
+    ]
+    if day_parts:
+        body += f"\n\n<i>Bugungi chiqim: {' + '.join(day_parts)}</i>"
 
     single_kind = parsed["yozuvlar"][0]["turi"] if len(saved_ids) == 1 else None
     await message.reply_text(

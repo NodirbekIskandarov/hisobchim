@@ -32,6 +32,7 @@ Bot:  🧾 MAXSULOT SAVDO MARKAZI
 ## Nima qila oladi
 
 - **Erkin matnni tushunadi** — `obedga 45 ming`, `1.5 mln kompyuterga`, `kecha dorixonaga 90 ming`
+- **Ikki valyutani qo'llab-quvvatlaydi** — so'm (standart) va AQSH dollari (`$100`, `50 dollar`); hisobotlarda alohida-alohida ko'rsatiladi, kurs orqali qo'shilmaydi
 - **Chek rasmini o'qiydi** — har bir mahsulot alohida yozuv sifatida, kategoriyaga ajratilgan holda saqlanadi
 - **Uzun chekni qismlab qabul qiladi** — chek kadrga sig'masa, bir nechta rasm qilib yuborasiz; ustma-ust tushgan qatorlar bir marta hisoblanadi
 - **Chekni tekshiradi** — mahsulotlar yig'indisini Python hisoblab, chekdagi "JAMI" bilan solishtiradi; farq chiqsa chekni avtomatik qayta o'qiydi
@@ -230,4 +231,6 @@ sudo journalctl -u hisobchi -f     # loglarni ko'rish
 - Chek qismlari yig'ilayotgan paytdagi rasmlar xotirada saqlanadi; bot qayta ishga
   tushsa yig'ilgan qismlar yo'qoladi.
 - Ovozli xabar qo'shilmagan. Kerak bo'lsa transkripsiya xizmati orqali qo'shsa bo'ladi.
-- Bir nechta valyuta qo'llab-quvvatlanmaydi.
+- Faqat matnli yozuvlarda ikki valyuta (so'm, dollar) qo'llab-quvvatlanadi; kurs
+  orqali birlashtirilmaydi — hisobotlarda alohida-alohida ko'rsatiladi. Chek
+  rasmidan o'qilgan yozuvlar hozircha har doim so'mda deb qabul qilinadi.
