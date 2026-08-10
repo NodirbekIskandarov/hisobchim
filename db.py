@@ -41,9 +41,14 @@ MIGRATIONS = [
 
 @contextmanager
 def get_conn():
-    conn = sqlite3.connect(config.DB_PATH)
+    # timeout: boshqa jarayon (bot yoki webapp) yozayotgan bo'lsa kutadi,
+    # darhol "database is locked" bermaydi.
+    conn = sqlite3.connect(config.DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL: bot.py va webapp.py bir vaqtda o'qishi/yozishi mumkin — o'qish
+    # yozishni bloklamaydi. Bir marta o'rnatiladi, keyingi ulanishlarga ham tegishli.
+    conn.execute("PRAGMA journal_mode = WAL")
     try:
         yield conn
         conn.commit()

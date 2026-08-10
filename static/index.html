@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>Hisobchi AI</title>
+<link rel="stylesheet" href="/static/style.css" />
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <h1>📊 Hisobchi AI</h1>
+    <button id="searchToggle" class="icon-btn" aria-label="Qidiruv">🔍</button>
+  </header>
+
+  <!-- Qidiruv paneli -->
+  <section id="searchPanel" class="search-panel hidden">
+    <input id="searchInput" type="text" inputmode="search" placeholder="Qidirish… (masalan: taksi)" />
+    <div id="searchMeta" class="search-meta"></div>
+    <div id="searchResults" class="tx-list"></div>
+  </section>
+
+  <!-- Asosiy boshqaruv paneli -->
+  <main id="dashboard">
+
+    <div class="period-tabs" id="periodTabs">
+      <button data-period="hafta">Hafta</button>
+      <button data-period="oy" class="active">Oy</button>
+      <button data-period="yil">Yil</button>
+    </div>
+
+    <div class="range-nav">
+      <button id="prevRange" class="icon-btn">‹</button>
+      <span id="rangeLabel">—</span>
+      <button id="nextRange" class="icon-btn">›</button>
+    </div>
+
+    <div class="kind-tabs" id="kindTabs">
+      <button data-kind="hammasi" class="active">Hammasi</button>
+      <button data-kind="kirim">Kirim</button>
+      <button data-kind="chiqim">Chiqim</button>
+      <button data-kind="qarz">Qarz</button>
+    </div>
+
+    <div class="currency-toggle" id="currencyToggle"></div>
+
+    <div class="donut-wrap">
+      <svg id="donutSvg" viewBox="0 0 200 200" class="donut">
+        <circle cx="100" cy="100" r="80" class="donut-bg" />
+        <g id="donutSegments"></g>
+      </svg>
+      <div class="donut-center">
+        <div id="donutValue" class="donut-value">0</div>
+        <div id="donutSub" class="donut-sub"></div>
+      </div>
+    </div>
+
+    <div id="categoryList" class="category-list"></div>
+
+    <h3 class="section-title">So'nggi yozuvlar</h3>
+    <div id="recentList" class="tx-list"></div>
+    <button id="loadMore" class="load-more hidden">Yana yuklash</button>
+
+  </main>
+
+  <div id="toast" class="toast hidden"></div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

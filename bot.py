@@ -16,8 +16,12 @@ from functools import wraps
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
+    MenuButtonDefault,
+    MenuButtonWebApp,
     ReplyKeyboardMarkup,
     Update,
+    WebAppInfo,
 )
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
@@ -238,15 +242,26 @@ def private_only(func):
 # Klaviaturalar
 # --------------------------------------------------------------------------- #
 
-MAIN_MENU = ReplyKeyboardMarkup(
-    [
+def main_menu() -> ReplyKeyboardMarkup:
+    """Har chaqiruvda quriladi — WEBAPP_URL ishga tushirilgandan keyin
+    qo'shilsa, botni qayta ishga tushirmasdan ham tugma paydo bo'ladi."""
+    rows = [
         ["📊 Bugun", "📅 Hafta", "🗓 Oy"],
         ["🧾 Oxirgi", "🤝 Qarzlar", "📈 Yil"],
         ["🧾 Uzun chek", "📤 CSV", "📖 Qo'llanma"],
-    ],
-    resize_keyboard=True,
-    input_field_placeholder="Xarajat yozing yoki chek rasmini yuboring…",
-)
+    ]
+    keyboard = [[KeyboardButton(text) for text in row] for row in rows]
+    if config.WEBAPP_URL:
+        keyboard.append([
+            KeyboardButton(
+                "📊 Boshqaruv paneli", web_app=WebAppInfo(url=config.WEBAPP_URL)
+            )
+        ])
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        input_field_placeholder="Xarajat yozing yoki chek rasmini yuboring…",
+    )
 
 COLLECT_MENU = ReplyKeyboardMarkup(
     [["✅ Tayyor", "❌ Bekor"]],
@@ -313,10 +328,20 @@ def category_keyboard(tx_id: int, kind: str) -> InlineKeyboardMarkup:
 # Buyruqlar
 # --------------------------------------------------------------------------- #
 
+def _help_text() -> str:
+    if config.WEBAPP_URL:
+        return HELP_TEXT + (
+            "\n\n<b>4. Grafik boshqaruv paneli</b> 📊\n"
+            "«📊 Boshqaruv paneli» tugmasi (yoki pastdagi menyu tugmasi) — "
+            "diagramma, filtrlar va qidiruv bilan to'liq interaktiv panel."
+        )
+    return HELP_TEXT
+
+
 @private_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
-        HELP_TEXT, parse_mode=ParseMode.HTML, reply_markup=MAIN_MENU
+        _help_text(), parse_mode=ParseMode.HTML, reply_markup=main_menu()
     )
 
 
@@ -324,7 +349,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for chunk in _split_message(GUIDE_TEXT):
         await update.effective_message.reply_text(
-            chunk, parse_mode=ParseMode.HTML, reply_markup=MAIN_MENU
+            chunk, parse_mode=ParseMode.HTML, reply_markup=main_menu()
         )
 
 
@@ -615,11 +640,11 @@ async def cmd_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bucket = _collect.pop(update.effective_user.id, None)
     if not bucket or not bucket["images"]:
         await update.effective_message.reply_text(
-            "Hech qanday rasm yuborilmadi.", reply_markup=MAIN_MENU
+            "Hech qanday rasm yuborilmadi.", reply_markup=main_menu()
         )
         return
     await update.effective_message.reply_text(
-        f"📥 {len(bucket['images'])} ta qism qabul qilindi.", reply_markup=MAIN_MENU
+        f"📥 {len(bucket['images'])} ta qism qabul qilindi.", reply_markup=main_menu()
     )
     await _process_receipt(update, context, bucket["images"], bucket["caption"])
 
@@ -627,7 +652,7 @@ async def cmd_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @private_only
 async def cmd_collect_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _collect.pop(update.effective_user.id, None)
-    await update.effective_message.reply_text("Bekor qilindi.", reply_markup=MAIN_MENU)
+    await update.effective_message.reply_text("Bekor qilindi.", reply_markup=main_menu())
 
 
 # --------------------------------------------------------------------------- #
@@ -921,6 +946,18 @@ async def _post_init(app: Application) -> None:
     from telegram import BotCommand
 
     await app.bot.set_my_commands([BotCommand(c, d) for c, d in BOT_COMMANDS])
+
+    # Pastki chap burchakdagi doimiy menyu tugmasi — Mini App'ni bir bosishda ochadi.
+    if config.WEBAPP_URL:
+        await app.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="Boshqaruv paneli",
+                web_app=WebAppInfo(url=config.WEBAPP_URL),
+            )
+        )
+        log.info("Mini App menyu tugmasi yoqildi: %s", config.WEBAPP_URL)
+    else:
+        await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
 
 
 def main() -> None:

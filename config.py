@@ -30,6 +30,11 @@ def _ids(name: str) -> set[int]:
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 
+# Grafik boshqaruv paneli (Telegram Mini App) manzili. Bo'sh bo'lsa
+# tegishli tugma ko'rsatilmaydi — webapp.py alohida joylashtirilishi kerak,
+# HTTPS bilan (Telegram Mini App talabi).
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
+
 # Yozuvlarni ajratish uchun arzon va tez model yetarli.
 PARSE_MODEL = os.getenv("PARSE_MODEL", "claude-haiku-4-5-20251001").strip()
 # Savollarga javob berish uchun kuchliroq model.
