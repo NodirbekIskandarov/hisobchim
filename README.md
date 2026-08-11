@@ -141,6 +141,15 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 | `/ochir 12` | 12-raqamli yozuvni o'chirish |
 | `/yopdim 12` | Qarzni yopilgan deb belgilash |
 | `/csv` | Barcha yozuvlarni CSV fayl qilib olish |
+| `/obuna` | Obuna tariflari va to'lov |
+| `/holat` | Obuna holati va bugungi limitlar |
+| `/byudjet` | Kategoriyaga oylik chegara qo'yish |
+| `/eslatma 21` | Kunlik eslatmani soat 21:00 ga sozlash |
+| `/kurs` | Dollar kursi (`/kurs 12800` — qo'lda o'rnatish) |
+| `/taklif` | Do'st taklif qilib bepul kun olish |
+| `/til` | Interfeys tili: o'zbek lotin / kirill / rus |
+| `/maxfiylik` | Maxfiylik siyosati |
+| `/ochirish` | Hisobni va butun tarixni o'chirish |
 
 ## Sozlamalar (`.env`)
 
