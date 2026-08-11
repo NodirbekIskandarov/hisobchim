@@ -8,8 +8,29 @@
   }
   const INIT_DATA = tg ? tg.initData : "";
 
-  const PALETTE = ["#2dd4a7", "#6c8cf5", "#f2a93b", "#f2637b", "#a879f2",
-                    "#4fd1e8", "#e8d24f", "#f28fce", "#7fe07f", "#f28f5c"];
+  // ----------------------------------------------------------------------- //
+  // Ranglar — Anthropic dataviz skill'ining tasdiqlangan palitrasi.
+  // Status ranglar (kirim/chiqim/qarz) mode-invariant, faqat "chiqim" light/
+  // dark uchun ikki xil qadam. Kategoriya ranglari — 8 xil hue, adjacent
+  // pairlist (donut/bar) uchun validatsiya qilingan, light/dark alohida.
+  // ----------------------------------------------------------------------- //
+
+  const SCHEME = (tg && tg.colorScheme) ||
+    (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+
+  const STATUS = SCHEME === "light"
+    ? { kirim: "#0ca30c", chiqim: "#d03b3b", qarz_berdim: "#fab219", qarz_oldim: "#ec835a" }
+    : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#fab219", qarz_oldim: "#ec835a" };
+
+  const CATEGORY_PALETTE = SCHEME === "light"
+    ? ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+    : ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
+
+  const MAX_CATEGORY_SLICES = 8;
+
+  // ----------------------------------------------------------------------- //
+  // Holat
+  // ----------------------------------------------------------------------- //
 
   const state = {
     period: "oy",
@@ -22,6 +43,7 @@
     recentOffset: 0,
     recentLimit: 20,
     me: null,
+    detailTx: null,
   };
 
   function todayIso() {
@@ -36,9 +58,13 @@
   // ----------------------------------------------------------------------- //
 
   async function api(path, opts) {
-    const res = await fetch(path, Object.assign({
-      headers: { "X-Telegram-Init-Data": INIT_DATA },
-    }, opts || {}));
+    const options = Object.assign({ headers: {} }, opts || {});
+    options.headers = Object.assign({ "X-Telegram-Init-Data": INIT_DATA }, options.headers || {});
+    if (options.body && typeof options.body !== "string") {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(options.body);
+    }
+    const res = await fetch(path, options);
     if (!res.ok) {
       let detail = res.statusText;
       try { detail = (await res.json()).detail || detail; } catch (_) {}
@@ -79,6 +105,10 @@
     return (state.me && state.me.kind_icons && state.me.kind_icons[kind]) || "•";
   }
 
+  function kindLabel(kind) {
+    return (state.me && state.me.kind_labels && state.me.kind_labels[kind]) || kind;
+  }
+
   function fmtDate(iso) {
     const MONTHS = ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"];
     const [y, m, d] = iso.split("-").map(Number);
@@ -90,7 +120,25 @@
     el.textContent = msg;
     el.classList.remove("hidden");
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => el.classList.add("hidden"), 2200);
+    toast._t = setTimeout(() => el.classList.add("hidden"), 2400);
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+    }[c]));
+  }
+
+  /** Kategoriyalar 8 tadan ko'p bo'lsa, qolganini "Boshqa" ga yig'adi —
+   * ranglar palitrasi 8 slotdan iborat, 9-rang hech qachon o'ylab topilmaydi. */
+  function foldToOther(rows) {
+    if (rows.length <= MAX_CATEGORY_SLICES) return rows;
+    const head = rows.slice(0, MAX_CATEGORY_SLICES - 1);
+    const rest = rows.slice(MAX_CATEGORY_SLICES - 1);
+    const otherSum = rest.reduce((s, r) => s + r.summa, 0);
+    const otherCount = rest.reduce((s, r) => s + r.soni, 0);
+    head.push({ kategoriya: `Boshqa (${rest.length})`, summa: otherSum, soni: otherCount, _other: true });
+    return head;
   }
 
   // ----------------------------------------------------------------------- //
@@ -99,7 +147,9 @@
 
   function shiftRef(period, isoRef, delta) {
     const d = new Date(isoRef + "T00:00:00");
-    if (period === "hafta") {
+    if (period === "kun") {
+      d.setDate(d.getDate() + delta);
+    } else if (period === "hafta") {
       d.setDate(d.getDate() + delta * 7);
     } else if (period === "oy") {
       d.setMonth(d.getMonth() + delta, 1);
@@ -116,16 +166,18 @@
   function renderDonut(segments, centerValue, centerSub) {
     const g = document.getElementById("donutSegments");
     g.innerHTML = "";
-    g.setAttribute("class", "donut-segments");
     const r = 80, cx = 100, cy = 100, circumference = 2 * Math.PI * r;
     const total = segments.reduce((s, seg) => s + seg.value, 0);
 
     if (total > 0) {
+      // 2px oraliq — qo'shni segmentlar orasida (skill: "surface gap between fills").
+      const gapDeg = segments.filter((s) => s.value > 0).length > 1 ? 2 : 0;
+      const gapLen = (gapDeg / 360) * circumference;
       let offset = 0;
       segments.forEach((seg) => {
         if (seg.value <= 0) return;
         const share = seg.value / total;
-        const len = share * circumference;
+        const len = Math.max(0, share * circumference - gapLen);
         const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         circle.setAttribute("cx", cx);
         circle.setAttribute("cy", cy);
@@ -134,7 +186,7 @@
         circle.setAttribute("stroke-dasharray", `${len} ${circumference - len}`);
         circle.setAttribute("stroke-dashoffset", -offset);
         g.appendChild(circle);
-        offset += len;
+        offset += share * circumference;
       });
     }
 
@@ -142,63 +194,53 @@
     document.getElementById("donutSub").textContent = centerSub;
   }
 
-  function renderCategoryList(rows, total, currency) {
-    const el = document.getElementById("categoryList");
-    el.innerHTML = "";
-    if (!rows.length) {
-      el.innerHTML = '<div class="empty-state">Bu davrda yozuv yo\'q.</div>';
-      return;
+  function renderCategorySection(title, rows, total, currency, kindForClick) {
+    const folded = foldToOther(rows);
+    let html = `<div class="section-label">${escapeHtml(title)}</div>`;
+    if (!folded.length) {
+      return html + '<div class="empty-state">Yozuv yo\'q.</div>';
     }
-    rows.forEach((row, i) => {
+    folded.forEach((row, i) => {
       const share = total > 0 ? row.summa / total : 0;
-      const color = PALETTE[i % PALETTE.length];
-      const div = document.createElement("div");
-      div.className = "cat-row";
-      div.innerHTML = `
-        <div class="cat-icon">${catIcon(row.kategoriya)}</div>
-        <div class="cat-info">
-          <div class="cat-name-row">
-            <span class="cat-name">${escapeHtml(row.kategoriya)}</span>
-            <span class="cat-amount">${fmtMoney(row.summa, currency)}</span>
+      const color = CATEGORY_PALETTE[i % CATEGORY_PALETTE.length];
+      html += `
+        <div class="cat-row" ${row._other ? "" : `data-cat-click="1" data-kind="${kindForClick}" data-category="${escapeHtml(row.kategoriya)}"`}>
+          <div class="cat-icon" style="background:${color}22">${row._other ? "…" : catIcon(row.kategoriya)}</div>
+          <div class="cat-info">
+            <div class="cat-name-row">
+              <span class="cat-name">${escapeHtml(row.kategoriya)}</span>
+              <span class="cat-amount">${fmtMoney(row.summa, currency)}</span>
+            </div>
+            <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
           </div>
-          <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
-        </div>
-        <div class="cat-share">${Math.round(share * 100)}%</div>
-      `;
-      el.appendChild(div);
+          <div class="cat-share">${Math.round(share * 100)}%</div>
+        </div>`;
     });
+    return html;
   }
 
-  function renderPersonList(items, currency) {
-    const el = document.getElementById("categoryList");
-    el.innerHTML = "";
+  function renderPersonSection(title, items, currency, color, kind) {
+    let html = `<div class="section-label">${escapeHtml(title)}</div>`;
     if (!items.length) {
-      el.innerHTML = '<div class="empty-state">Ochiq qarz yo\'q.</div>';
-      return;
+      return html + '<div class="empty-state">Yo\'q.</div>';
     }
     const total = items.reduce((s, i) => s + i.amount, 0);
     items.forEach((item) => {
       const share = total > 0 ? item.amount / total : 0;
-      const div = document.createElement("div");
-      div.className = "cat-row";
-      div.innerHTML = `
-        <div class="cat-icon">🤝</div>
-        <div class="cat-info">
-          <div class="cat-name-row">
-            <span class="cat-name">${escapeHtml(item.person)}</span>
-            <span class="cat-amount">${fmtMoney(item.amount, currency)}</span>
+      html += `
+        <div class="cat-row" data-debt-id="${item.id}" data-kind="${kind}">
+          <div class="cat-icon" style="background:${color}22">${kind === "qarz_berdim" ? "📤" : "📥"}</div>
+          <div class="cat-info">
+            <div class="cat-name-row">
+              <span class="cat-name">${escapeHtml(item.person)}</span>
+              <span class="cat-amount">${fmtMoney(item.amount, currency)}</span>
+            </div>
+            <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
           </div>
-          <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:var(--qarz-berdim)"></div></div>
-        </div>
-      `;
-      el.appendChild(div);
+          <button class="cat-settle" data-settle-id="${item.id}">Yopish</button>
+        </div>`;
     });
-  }
-
-  function escapeHtml(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-    }[c]));
+    return html;
   }
 
   // ----------------------------------------------------------------------- //
@@ -214,7 +256,6 @@
     state.summary = data;
     document.getElementById("rangeLabel").textContent = data.label;
 
-    // Valyuta chiplarini yangilash
     state.currencies = data.currencies.length ? data.currencies : ["som"];
     if (!state.currencies.includes(state.currency)) state.currency = state.currencies[0];
     renderCurrencyToggle();
@@ -226,12 +267,13 @@
 
   async function loadDebts() {
     state.debts = await api("/api/debts");
+    if (state.kind === "qarz") { renderCurrentKind(); loadRecent(false); }
   }
 
   function renderCurrencyToggle() {
     const el = document.getElementById("currencyToggle");
     el.innerHTML = "";
-    if (state.currencies.length <= 1) return; // faqat bitta valyuta bo'lsa tugma shart emas
+    if (state.currencies.length <= 1) return;
     const symbols = state.me.currency_symbols;
     state.currencies.forEach((cur) => {
       const btn = document.createElement("button");
@@ -244,66 +286,89 @@
 
   function renderCurrentKind() {
     const cur = state.currency;
-    const data = state.summary && state.summary.by_currency[cur];
 
     if (state.kind === "qarz") {
       renderQarzKind();
       return;
     }
 
+    const data = state.summary && state.summary.by_currency[cur];
+    const listEl = document.getElementById("categoryList");
+
     if (!data) {
       renderDonut([], fmtMoney(0, cur), "");
-      renderCategoryList([], 0, cur);
+      listEl.innerHTML = '<div class="empty-state">Bu davrda yozuv yo\'q.</div>';
       return;
     }
 
     if (state.kind === "hammasi") {
       renderDonut(
         [
-          { value: data.kirim, color: "#2dd4a7" },
-          { value: data.chiqim, color: "#f2637b" },
+          { value: data.kirim, color: STATUS.kirim },
+          { value: data.chiqim, color: STATUS.chiqim },
         ],
         fmtMoney(data.farq, cur),
         "Farq (kirim − chiqim)"
       );
-      const combined = [
-        ...data.kirim_kategoriyalari.map((c) => ({ ...c, _tag: "kirim" })),
-        ...data.chiqim_kategoriyalari.map((c) => ({ ...c, _tag: "chiqim" })),
-      ].sort((a, b) => b.summa - a.summa);
-      renderCategoryList(combined, data.kirim + data.chiqim, cur);
+      listEl.innerHTML =
+        renderCategorySection("Kirim kategoriyalari", data.kirim_kategoriyalari, data.kirim, cur, "kirim") +
+        renderCategorySection("Chiqim kategoriyalari", data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
     } else if (state.kind === "kirim") {
+      const folded = foldToOther(data.kirim_kategoriyalari);
       renderDonut(
-        data.kirim_kategoriyalari.map((c, i) => ({ value: c.summa, color: PALETTE[i % PALETTE.length] })),
+        folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
         fmtMoney(data.kirim, cur), "Kirim"
       );
-      renderCategoryList(data.kirim_kategoriyalari, data.kirim, cur);
+      listEl.innerHTML = renderCategorySection("Kategoriyalar", data.kirim_kategoriyalari, data.kirim, cur, "kirim");
     } else if (state.kind === "chiqim") {
+      const folded = foldToOther(data.chiqim_kategoriyalari);
       renderDonut(
-        data.chiqim_kategoriyalari.map((c, i) => ({ value: c.summa, color: PALETTE[i % PALETTE.length] })),
+        folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
         fmtMoney(data.chiqim, cur), "Chiqim"
       );
-      renderCategoryList(data.chiqim_kategoriyalari, data.chiqim, cur);
+      listEl.innerHTML = renderCategorySection("Kategoriyalar", data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
     }
+
+    bindCategoryClicks();
   }
 
   function renderQarzKind() {
-    if (!state.debts) { renderDonut([], "…", ""); return; }
+    const listEl = document.getElementById("categoryList");
+    if (!state.debts) { renderDonut([], "…", ""); listEl.innerHTML = ""; return; }
     const cur = state.currency;
     const berdim = (state.debts.qarz_berdim.totals[cur]) || 0;
     const oldim = (state.debts.qarz_oldim.totals[cur]) || 0;
     renderDonut(
       [
-        { value: berdim, color: "#f2a93b" },
-        { value: oldim, color: "#6c8cf5" },
+        { value: berdim, color: STATUS.qarz_berdim },
+        { value: oldim, color: STATUS.qarz_oldim },
       ],
       fmtMoney(berdim - oldim, cur),
       "Sof qarz (menga − mendan)"
     );
-    const items = [
-      ...((state.debts.qarz_berdim.items[cur] || []).map((i) => ({ ...i, _dir: "📤" }))),
-      ...((state.debts.qarz_oldim.items[cur] || []).map((i) => ({ ...i, _dir: "📥" }))),
-    ].sort((a, b) => b.amount - a.amount);
-    renderPersonList(items, cur);
+    const berdimItems = state.debts.qarz_berdim.items[cur] || [];
+    const oldimItems = state.debts.qarz_oldim.items[cur] || [];
+    listEl.innerHTML =
+      renderPersonSection("📤 Menga qarzdorlar", berdimItems, cur, STATUS.qarz_berdim, "qarz_berdim") +
+      renderPersonSection("📥 Men qarzdorman", oldimItems, cur, STATUS.qarz_oldim, "qarz_oldim");
+    bindSettleButtons();
+  }
+
+  function bindCategoryClicks() {
+    document.querySelectorAll("[data-cat-click]").forEach((el) => {
+      el.onclick = () => {
+        openFilteredList(el.dataset.kind, el.dataset.category);
+      };
+    });
+  }
+
+  function bindSettleButtons() {
+    document.querySelectorAll("[data-settle-id]").forEach((btn) => {
+      btn.onclick = (ev) => {
+        ev.stopPropagation();
+        confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(btn.dataset.settleId));
+      };
+    });
   }
 
   async function loadRecent(append) {
@@ -311,7 +376,6 @@
     if (!append) listEl.innerHTML = '<div class="spinner">Yuklanmoqda…</div>';
 
     if (state.kind === "qarz") {
-      // Qarzlar davr bilan bog'liq emas — /api/debts dan olinadi, alohida ro'yxat.
       document.getElementById("loadMore").classList.add("hidden");
       if (!state.debts) return;
       const cur = state.currency;
@@ -342,6 +406,24 @@
     document.getElementById("loadMore").classList.toggle("hidden", shown >= data.total_count);
   }
 
+  /** Kategoriya ustiga bosilganda — shu kategoriyadagi yozuvlarni pastdagi
+   * "So'nggi yozuvlar" ro'yxatiga filtrlab ko'rsatadi. */
+  async function openFilteredList(kind, category) {
+    const listEl = document.getElementById("recentList");
+    listEl.innerHTML = '<div class="spinner">Yuklanmoqda…</div>';
+    const params = new URLSearchParams({
+      start: state.summary.start, end: state.summary.end,
+      currency: state.currency, kind, search: category, limit: 100,
+    });
+    const data = await api(`/api/transactions?${params.toString()}`);
+    const filtered = data.items.filter((t) => t.category === category);
+    listEl.innerHTML = "";
+    if (!filtered.length) { listEl.innerHTML = '<div class="empty-state">Yozuv yo\'q.</div>'; return; }
+    filtered.forEach((tx) => listEl.appendChild(buildTxRow(tx)));
+    document.getElementById("loadMore").classList.add("hidden");
+    document.querySelector(".section-title").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   function buildTxRow(tx) {
     const div = document.createElement("div");
     div.className = "tx-row";
@@ -349,13 +431,12 @@
     div.innerHTML = `
       <div class="tx-icon">${icon}</div>
       <div class="tx-main">
-        <div class="tx-note">${escapeHtml(tx.note || tx.category)}${tx.person ? " — " + escapeHtml(tx.person) : ""}</div>
-        <div class="tx-meta">${fmtDate(tx.date)} · ${escapeHtml(tx.category)}</div>
+        <div class="tx-note">${escapeHtml(tx.note || tx.category)}${tx.person ? " — " + escapeHtml(tx.person) : ""}${tx.settled ? " ✅" : ""}</div>
+        <div class="tx-meta">${fmtDate(tx.date)} · ${escapeHtml(tx.category)}${tx.receipt_id ? " · 🧾" : ""}</div>
       </div>
       <div class="tx-amount ${tx.kind}">${kindIcon(tx.kind)} ${fmtMoney(tx.amount, tx.currency)}</div>
-      <button class="tx-del" data-id="${tx.id}" aria-label="O'chirish">🗑</button>
     `;
-    div.querySelector(".tx-del").onclick = () => deleteTx(tx.id, div);
+    div.onclick = () => openDetailSheet(tx);
     return div;
   }
 
@@ -370,32 +451,308 @@
       </div>
       <div class="tx-amount ${item.kind}">${fmtMoney(item.amount, currency)}</div>
     `;
+    div.onclick = () => openDetailSheet({
+      id: item.id, kind: item.kind, amount: item.amount, currency,
+      category: "qarz", note: item.note, person: item.person, date: item.date,
+      receipt_id: null, settled: false,
+    });
     return div;
   }
 
-  async function deleteTx(id, rowEl) {
+  // ----------------------------------------------------------------------- //
+  // Tasdiqlash (Telegram'ning o'ziga xos dialogi, bo'lmasa oddiy confirm)
+  // ----------------------------------------------------------------------- //
+
+  function confirmAction(message, onYes) {
     if (tg && tg.showConfirm) {
-      tg.showConfirm("Bu yozuvni o'chirasizmi?", async (ok) => {
-        if (ok) await doDelete(id, rowEl);
-      });
-    } else if (confirm("Bu yozuvni o'chirasizmi?")) {
-      await doDelete(id, rowEl);
+      tg.showConfirm(message, (ok) => { if (ok) onYes(); });
+    } else if (confirm(message)) {
+      onYes();
     }
   }
 
-  async function doDelete(id, rowEl) {
+  // ----------------------------------------------------------------------- //
+  // Yozuv tafsiloti / tahrirlash paneli
+  // ----------------------------------------------------------------------- //
+
+  function openSheet(id) { document.getElementById(id).classList.remove("hidden"); }
+  function closeSheet(id) { document.getElementById(id).classList.add("hidden"); }
+
+  function openDetailSheet(tx) {
+    state.detailTx = tx;
+    const isDebt = tx.kind.startsWith("qarz");
+    const canToggleKind = tx.kind === "kirim" || tx.kind === "chiqim";
+    const cats = (state.me.categories_by_kind[tx.kind] || []);
+
+    let html = `
+      <div class="tx-detail-header">
+        <span style="font-size:22px">${kindIcon(tx.kind)}</span>
+        <span class="tx-detail-amount" style="color:${isDebt ? "var(--text)" : (tx.kind === "kirim" ? "var(--good)" : "var(--critical)")}">
+          ${fmtMoney(tx.amount, tx.currency)}
+        </span>
+      </div>
+      <div class="tx-detail-meta">
+        ${escapeHtml(kindLabel(tx.kind))} · ${fmtDate(tx.date)}
+        ${tx.person ? " · " + escapeHtml(tx.person) : ""}
+        ${tx.note ? "<br>" + escapeHtml(tx.note) : ""}
+      </div>
+    `;
+
+    if (!isDebt) {
+      html += `<div class="sheet-row">
+        <div class="sheet-label">Kategoriya</div>
+        <div class="chip-grid" id="catChips">
+          ${cats.map((c) => `<button class="chip ${c === tx.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(c)}</button>`).join("")}
+        </div>
+      </div>`;
+    }
+
+    if (canToggleKind) {
+      const other = tx.kind === "kirim" ? "chiqim" : "kirim";
+      html += `<button class="btn btn-secondary" id="toggleKindBtn" style="width:100%;margin-bottom:10px">
+        🔄 ${escapeHtml(kindLabel(other))}ga almashtirish
+      </button>`;
+    }
+
+    if (tx.receipt_id) {
+      html += `<div id="receiptItems" class="sheet-row"><div class="sheet-label">🧾 Shu chekdagi boshqa mahsulotlar</div><div class="spinner">Yuklanmoqda…</div></div>`;
+    }
+
+    html += `<div class="sheet-actions">
+      ${isDebt && !tx.settled ? '<button class="btn btn-good" id="settleBtn">✅ Yopish</button>' : ""}
+      <button class="btn btn-danger" id="deleteBtn">🗑 O'chirish</button>
+    </div>`;
+
+    document.getElementById("detailBody").innerHTML = html;
+    openSheet("detailBackdrop");
+
+    document.querySelectorAll("#catChips .chip").forEach((chip) => {
+      chip.onclick = () => updateTxCategory(tx.id, chip.dataset.cat);
+    });
+    const toggleBtn = document.getElementById("toggleKindBtn");
+    if (toggleBtn) toggleBtn.onclick = () => toggleTxKind(tx.id, tx.kind === "kirim" ? "chiqim" : "kirim");
+    const settleBtn = document.getElementById("settleBtn");
+    if (settleBtn) settleBtn.onclick = () => confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(tx.id));
+    document.getElementById("deleteBtn").onclick = () =>
+      confirmAction("Bu yozuvni o'chirasizmi?", () => deleteTx(tx.id));
+
+    if (tx.receipt_id) loadReceiptItems(tx.receipt_id, tx.id);
+  }
+
+  async function loadReceiptItems(receiptId, excludeId) {
+    try {
+      const data = await api(`/api/transactions?receipt_id=${encodeURIComponent(receiptId)}&limit=100`);
+      const others = data.items.filter((i) => i.id !== excludeId);
+      const el = document.getElementById("receiptItems");
+      if (!el) return;
+      if (!others.length) {
+        el.querySelector(".spinner")?.remove();
+        return;
+      }
+      const list = others.map((i) =>
+        `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:var(--hint)">
+          <span>${catIcon(i.category)} ${escapeHtml(i.note || i.category)}</span>
+          <span>${fmtMoney(i.amount, i.currency)}</span>
+        </div>`
+      ).join("");
+      el.innerHTML = `<div class="sheet-label">🧾 Shu chekdagi boshqa mahsulotlar (${others.length})</div>${list}`;
+    } catch (_) { /* jim tur — asosiy funksionallik emas */ }
+  }
+
+  async function updateTxCategory(id, category) {
+    try {
+      await api(`/api/transactions/${id}`, { method: "PATCH", body: { category } });
+      toast("Kategoriya yangilandi");
+      closeSheet("detailBackdrop");
+      refreshAll();
+    } catch (e) { toast("Xatolik: " + e.message); }
+  }
+
+  async function toggleTxKind(id, newKind) {
+    try {
+      await api(`/api/transactions/${id}`, { method: "PATCH", body: { kind: newKind } });
+      toast("Turi yangilandi");
+      closeSheet("detailBackdrop");
+      refreshAll();
+    } catch (e) { toast("Xatolik: " + e.message); }
+  }
+
+  async function settleDebt(id) {
+    try {
+      await api(`/api/debts/${id}/settle`, { method: "POST" });
+      toast("Qarz yopildi ✅");
+      closeSheet("detailBackdrop");
+      await loadDebts();
+      refreshAll();
+    } catch (e) { toast("Xatolik: " + e.message); }
+  }
+
+  async function deleteTx(id) {
     try {
       await api(`/api/transactions/${id}`, { method: "DELETE" });
-      rowEl.remove();
       toast("O'chirildi");
-      loadSummary();
+      closeSheet("detailBackdrop");
+      refreshAll();
+    } catch (e) { toast("Xatolik: " + e.message); }
+  }
+
+  function refreshAll() {
+    loadSummary();
+    loadDebts();
+    if (!document.getElementById("searchPanel").classList.contains("hidden")) runSearch();
+  }
+
+  // ----------------------------------------------------------------------- //
+  // Yangi yozuv qo'shish
+  // ----------------------------------------------------------------------- //
+
+  const addForm = {
+    kind: "chiqim", currency: "som", category: "", date: todayIso(),
+    amount: "", note: "", person: "",
+  };
+
+  function openAddSheet() {
+    addForm.kind = "chiqim";
+    addForm.currency = state.currencies[0] || "som";
+    addForm.category = (state.me.categories_by_kind.chiqim || [])[0] || "";
+    addForm.date = todayIso();
+    addForm.amount = "";
+    addForm.note = "";
+    addForm.person = "";
+    renderAddForm();
+    openSheet("addBackdrop");
+  }
+
+  /** Chip bosilganda forma qayta chiziladi — shundan oldin foydalanuvchi
+   * hali saqlab ulgurmagan matn/son maydonlarini yo'qotmaslik uchun
+   * joriy qiymatlarni addForm'ga o'qib olamiz. */
+  function captureFormValues() {
+    const amountEl = document.getElementById("fAmount");
+    const noteEl = document.getElementById("fNote");
+    const personEl = document.getElementById("fPerson");
+    const dateEl = document.getElementById("fDate");
+    if (amountEl) addForm.amount = amountEl.value;
+    if (noteEl) addForm.note = noteEl.value;
+    if (personEl) addForm.person = personEl.value;
+    if (dateEl) addForm.date = dateEl.value;
+  }
+
+  function renderAddForm() {
+    const isDebt = addForm.kind.startsWith("qarz");
+    const cats = state.me.categories_by_kind[addForm.kind] || [];
+    if (!cats.includes(addForm.category)) addForm.category = cats[0] || "";
+
+    const html = `
+      <h2>➕ Yangi yozuv</h2>
+
+      <div class="sheet-row">
+        <div class="sheet-label">Turi</div>
+        <div class="chip-grid">
+          ${["chiqim", "kirim", "qarz_berdim", "qarz_oldim"].map((k) =>
+            `<button class="chip ${k === addForm.kind ? "active" : ""}" data-kind="${k}">${kindIcon(k)} ${escapeHtml(kindLabel(k))}</button>`
+          ).join("")}
+        </div>
+      </div>
+
+      <div class="sheet-row">
+        <div class="sheet-label">Summa</div>
+        <input id="fAmount" class="field-input" type="number" inputmode="decimal" placeholder="0" value="${escapeHtml(addForm.amount)}" />
+      </div>
+
+      <div class="sheet-row">
+        <div class="sheet-label">Valyuta</div>
+        <div class="chip-grid">
+          ${(state.me.currency_symbols ? Object.keys(state.me.currency_symbols) : ["som", "usd"]).map((c) =>
+            `<button class="chip ${c === addForm.currency ? "active" : ""}" data-currency="${c}">${state.me.currency_symbols[c]}</button>`
+          ).join("")}
+        </div>
+      </div>
+
+      ${!isDebt ? `
+      <div class="sheet-row">
+        <div class="sheet-label">Kategoriya</div>
+        <div class="chip-grid">
+          ${cats.map((c) => `<button class="chip ${c === addForm.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(c)}</button>`).join("")}
+        </div>
+      </div>` : ""}
+
+      ${isDebt ? `
+      <div class="sheet-row">
+        <div class="sheet-label">Kim bilan (ism)</div>
+        <input id="fPerson" class="field-input" type="text" placeholder="Masalan: Ali" value="${escapeHtml(addForm.person)}" />
+      </div>` : ""}
+
+      <div class="sheet-row">
+        <div class="sheet-label">Izoh</div>
+        <input id="fNote" class="field-input" type="text" placeholder="Ixtiyoriy" value="${escapeHtml(addForm.note)}" />
+      </div>
+
+      <div class="sheet-row">
+        <div class="sheet-label">Sana</div>
+        <input id="fDate" class="field-input" type="date" value="${addForm.date}" />
+      </div>
+
+      <div class="sheet-actions">
+        <button class="btn btn-secondary" id="addCancel">Bekor qilish</button>
+        <button class="btn btn-primary" id="addSave">Saqlash</button>
+      </div>
+    `;
+    document.getElementById("addBody").innerHTML = html;
+
+    document.querySelectorAll('[data-kind]').forEach((btn) => {
+      btn.onclick = () => { captureFormValues(); addForm.kind = btn.dataset.kind; renderAddForm(); };
+    });
+    document.querySelectorAll('[data-currency]').forEach((btn) => {
+      btn.onclick = () => { captureFormValues(); addForm.currency = btn.dataset.currency; renderAddForm(); };
+    });
+    document.querySelectorAll('[data-cat]').forEach((btn) => {
+      btn.onclick = () => { captureFormValues(); addForm.category = btn.dataset.cat; renderAddForm(); };
+    });
+    document.getElementById("addCancel").onclick = () => closeSheet("addBackdrop");
+    document.getElementById("addSave").onclick = submitAddForm;
+  }
+
+  async function submitAddForm() {
+    const amount = parseFloat(document.getElementById("fAmount").value);
+    if (!amount || amount <= 0) { toast("Summani to'g'ri kiriting"); return; }
+    const isDebt = addForm.kind.startsWith("qarz");
+    const person = isDebt ? (document.getElementById("fPerson").value || "").trim() : "";
+    if (isDebt && !person) { toast("Qarz uchun ism kerak"); return; }
+
+    const body = {
+      kind: addForm.kind, amount, currency: addForm.currency,
+      category: isDebt ? "qarz" : addForm.category,
+      note: (document.getElementById("fNote").value || "").trim(),
+      person: person || null,
+      date: document.getElementById("fDate").value || todayIso(),
+    };
+    try {
+      await api("/api/transactions", { method: "POST", body });
+      toast("Saqlandi ✅");
+      closeSheet("addBackdrop");
+      refreshAll();
     } catch (e) {
       toast("Xatolik: " + e.message);
     }
   }
 
   // ----------------------------------------------------------------------- //
+  // CSV eksport
+  // ----------------------------------------------------------------------- //
+
+  function exportCsv() {
+    const url = `${location.origin}/api/export.csv?init_data=${encodeURIComponent(INIT_DATA)}`;
+    if (tg && tg.openLink) {
+      tg.openLink(url);
+    } else {
+      window.open(url, "_blank");
+    }
+  }
+
+  // ----------------------------------------------------------------------- //
   // Qidiruv
+  // ----------------------------------------------------------------------- //
+
   let searchTimer = null;
 
   function initSearch() {
@@ -408,6 +765,7 @@
       const opening = panel.classList.contains("hidden");
       panel.classList.toggle("hidden");
       dashboard.classList.toggle("hidden", opening);
+      document.getElementById("fabAdd").classList.toggle("hidden", opening);
       if (opening) input.focus();
     };
 
@@ -477,6 +835,16 @@
     document.getElementById("loadMore").onclick = () => {
       state.recentOffset += state.recentLimit;
       loadRecent(true);
+    };
+
+    document.getElementById("fabAdd").onclick = openAddSheet;
+    document.getElementById("csvBtn").onclick = exportCsv;
+
+    document.getElementById("detailBackdrop").onclick = (ev) => {
+      if (ev.target.id === "detailBackdrop") closeSheet("detailBackdrop");
+    };
+    document.getElementById("addBackdrop").onclick = (ev) => {
+      if (ev.target.id === "addBackdrop") closeSheet("addBackdrop");
     };
   }
 

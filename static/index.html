@@ -12,7 +12,10 @@
 
   <header class="topbar">
     <h1>📊 Hisobchi AI</h1>
-    <button id="searchToggle" class="icon-btn" aria-label="Qidiruv">🔍</button>
+    <div class="topbar-actions">
+      <button id="csvBtn" class="icon-btn" aria-label="CSV eksport">📤</button>
+      <button id="searchToggle" class="icon-btn" aria-label="Qidiruv">🔍</button>
+    </div>
   </header>
 
   <!-- Qidiruv paneli -->
@@ -26,6 +29,7 @@
   <main id="dashboard">
 
     <div class="period-tabs" id="periodTabs">
+      <button data-period="kun">Kun</button>
       <button data-period="hafta">Hafta</button>
       <button data-period="oy" class="active">Oy</button>
       <button data-period="yil">Yil</button>
@@ -49,7 +53,7 @@
     <div class="donut-wrap">
       <svg id="donutSvg" viewBox="0 0 200 200" class="donut">
         <circle cx="100" cy="100" r="80" class="donut-bg" />
-        <g id="donutSegments"></g>
+        <g id="donutSegments" class="donut-segments"></g>
       </svg>
       <div class="donut-center">
         <div id="donutValue" class="donut-value">0</div>
@@ -64,6 +68,24 @@
     <button id="loadMore" class="load-more hidden">Yana yuklash</button>
 
   </main>
+
+  <button id="fabAdd" class="fab" aria-label="Yozuv qo'shish">+</button>
+
+  <!-- Yozuv tafsiloti / tahrirlash paneli -->
+  <div id="detailBackdrop" class="sheet-backdrop hidden">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div id="detailBody"></div>
+    </div>
+  </div>
+
+  <!-- Yangi yozuv qo'shish paneli -->
+  <div id="addBackdrop" class="sheet-backdrop hidden">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div id="addBody"></div>
+    </div>
+  </div>
 
   <div id="toast" class="toast hidden"></div>
 </div>

@@ -19,9 +19,13 @@ import time
 from datetime import date, timedelta
 from urllib.parse import parse_qsl
 
+import csv
+import io
+
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 import config
 import db
@@ -91,6 +95,16 @@ def current_user(x_telegram_init_data: str = Header(default="")) -> dict:
     return _validate_init_data(x_telegram_init_data)
 
 
+def current_user_flexible(
+    x_telegram_init_data: str = Header(default=""),
+    init_data: str = Query(default=""),
+) -> dict:
+    """CSV eksport kabi to'g'ridan-to'g'ri havola orqali ochiladigan so'rovlar
+    uchun — brauzer havolasi maxsus sarlavha yubora olmaydi, shuning uchun
+    initData query-parametr sifatida ham qabul qilinadi (imzo tekshiruvi bir xil)."""
+    return _validate_init_data(x_telegram_init_data or init_data)
+
+
 # --------------------------------------------------------------------------- #
 # Sana oralig'ini hisoblash (dashboard uchun — oldinga/orqaga navigatsiya)
 # --------------------------------------------------------------------------- #
@@ -146,6 +160,12 @@ def api_me(user: dict = Depends(current_user)):
         "currency_symbols": config.CURRENCY_SYMBOLS,
         "kind_icons": config.KIND_ICONS,
         "kind_labels": config.KIND_LABELS,
+        "categories_by_kind": {
+            config.KIND_CHIQIM: config.EXPENSE_CATEGORIES,
+            config.KIND_KIRIM: config.INCOME_CATEGORIES,
+            config.KIND_QARZ_BERDIM: config.DEBT_CATEGORIES,
+            config.KIND_QARZ_OLDIM: config.DEBT_CATEGORIES,
+        },
     }
 
 
@@ -221,6 +241,7 @@ def api_transactions(
     currency: str | None = None,
     kind: str | None = None,
     search: str | None = None,
+    receipt_id: str | None = None,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict = Depends(current_user),
@@ -235,6 +256,8 @@ def api_transactions(
     all_rows = db.list_range(user["user_id"], start_d, end_d, [kind] if kind else None)
     if currency:
         all_rows = [r for r in all_rows if r["currency"] == currency]
+    if receipt_id:
+        all_rows = [r for r in all_rows if r["receipt_id"] == receipt_id]
     if search:
         needle = search.strip().lower()
         all_rows = [
@@ -255,15 +278,7 @@ def api_transactions(
     return {
         "total_count": len(all_rows),
         "totals": totals,
-        "items": [
-            {
-                "id": r["id"], "date": r["occurred_on"], "kind": r["kind"],
-                "amount": r["amount"], "currency": r["currency"],
-                "category": r["category"], "note": r["note"],
-                "person": r["person"], "receipt_id": r["receipt_id"],
-            }
-            for r in page
-        ],
+        "items": [_serialize_tx(r) for r in page],
     }
 
 
@@ -273,6 +288,109 @@ def api_delete_transaction(tx_id: int, user: dict = Depends(current_user)):
     if not ok:
         raise HTTPException(404, "Yozuv topilmadi")
     return {"deleted": True}
+
+
+def _serialize_tx(row) -> dict:
+    return {
+        "id": row["id"], "date": row["occurred_on"], "kind": row["kind"],
+        "amount": row["amount"], "currency": row["currency"],
+        "category": row["category"], "note": row["note"],
+        "person": row["person"], "receipt_id": row["receipt_id"],
+        "settled": bool(row["settled"]),
+    }
+
+
+class TxUpdate(BaseModel):
+    category: str | None = None
+    # Faqat kirim<->chiqim almashtirish — bot.py'dagi "🔄 Turini almashtirish"
+    # tugmasi bilan bir xil cheklov (qarz turlari shaxs maydoniga bog'liq,
+    # bu yerda o'zgartirilmaydi).
+    kind: str | None = None
+
+
+@app.patch("/api/transactions/{tx_id}")
+def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(current_user)):
+    row = db.get_transaction(user["user_id"], tx_id)
+    if not row:
+        raise HTTPException(404, "Yozuv topilmadi")
+
+    if body.kind and body.kind != row["kind"]:
+        if row["kind"] not in (config.KIND_CHIQIM, config.KIND_KIRIM) or \
+           body.kind not in (config.KIND_CHIQIM, config.KIND_KIRIM):
+            raise HTTPException(400, "Bu yozuv turini almashtirib bo'lmaydi")
+        new_category = body.category or config.fallback_category(body.kind)
+        if new_category not in config.categories_for(body.kind):
+            raise HTTPException(400, "Noto'g'ri kategoriya")
+        db.update_kind(user["user_id"], tx_id, body.kind, new_category)
+    elif body.category:
+        if body.category not in config.categories_for(row["kind"]):
+            raise HTTPException(400, "Noto'g'ri kategoriya")
+        db.update_category(user["user_id"], tx_id, body.category)
+
+    return _serialize_tx(db.get_transaction(user["user_id"], tx_id))
+
+
+@app.post("/api/debts/{tx_id}/settle")
+def api_settle_debt(tx_id: int, user: dict = Depends(current_user)):
+    ok = db.settle_debt(user["user_id"], tx_id)
+    if not ok:
+        raise HTTPException(404, "Ochiq qarzlar orasida topilmadi")
+    return {"settled": True}
+
+
+class TxCreate(BaseModel):
+    kind: str
+    amount: float = Field(gt=0)
+    currency: str = "som"
+    category: str
+    note: str = ""
+    person: str | None = None
+    date: str | None = None
+
+
+@app.post("/api/transactions", status_code=201)
+def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
+    if body.kind not in config.KINDS:
+        raise HTTPException(400, "Noto'g'ri turi")
+    currency = config.normalize_currency(body.currency)
+    category = config.normalize_category(body.kind, body.category)
+    person = (body.person or "").strip() or None
+    if body.kind in config.DEBT_KINDS and not person:
+        raise HTTPException(400, "Qarz uchun shaxs ismi kerak")
+    if body.kind not in config.DEBT_KINDS:
+        person = None
+    occurred_on = _parse_date(body.date, reports.today()).isoformat()
+
+    tx_id = db.add_transaction(
+        user_id=user["user_id"], kind=body.kind, amount=body.amount,
+        category=category, note=body.note.strip()[:120], person=person,
+        occurred_on=occurred_on, raw_text="[boshqaruv panelidan qo'lda qo'shildi]",
+        currency=currency,
+    )
+    return _serialize_tx(db.get_transaction(user["user_id"], tx_id))
+
+
+@app.get("/api/export.csv")
+def api_export_csv(user: dict = Depends(current_user_flexible)):
+    rows = db.all_rows(user["user_id"])
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        ["id", "sana", "turi", "summa", "valyuta", "kategoriya", "izoh",
+         "shaxs", "yopilgan", "chek"]
+    )
+    for r in rows:
+        writer.writerow([
+            r["id"], r["occurred_on"], r["kind"], r["amount"], r["currency"],
+            r["category"], r["note"], r["person"] or "", r["settled"],
+            r["receipt_id"] or "",
+        ])
+    content = buf.getvalue().encode("utf-8-sig")
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=hisobot.csv"},
+    )
 
 
 # --------------------------------------------------------------------------- #

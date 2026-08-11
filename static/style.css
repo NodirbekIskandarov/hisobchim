@@ -1,17 +1,43 @@
+/* Ranglar manbasi: Anthropic dataviz skill'ining tasdiqlangan palitrasi
+   (references/palette.md) — status va matn ranglari mode-invariant yoki
+   validatsiya qilingan light/dark juftlik. Kategoriya ranglari (8 xil hue)
+   app.js'da runtime'da tg.colorScheme asosida tanlanadi. */
 :root {
-  --bg: var(--tg-theme-bg-color, #0f1115);
-  --bg2: var(--tg-theme-secondary-bg-color, #181b21);
-  --card: #1d2129;
-  --text: var(--tg-theme-text-color, #eceff3);
-  --hint: var(--tg-theme-hint-color, #8a8f9a);
-  --accent: var(--tg-theme-button-color, #2dd4a7);
-  --accent-text: var(--tg-theme-button-text-color, #04140f);
-  --kirim: #2dd4a7;
-  --chiqim: #f2637b;
-  --qarz-berdim: #f2a93b;
-  --qarz-oldim: #6c8cf5;
-  --border: rgba(255, 255, 255, 0.06);
+  /* Telegram o'z mavzu ranglarini beradi — bo'lmasa validatsiya qilingan
+     qorong'i mavzu standart bo'lib qoladi (ilova qorong'i UI'da loyihalangan). */
+  --bg: var(--tg-theme-bg-color, #0d0d0d);
+  --bg2: var(--tg-theme-secondary-bg-color, #1a1a19);
+  --card: #201f1d;
+  --text: var(--tg-theme-text-color, #ffffff);
+  --hint: var(--tg-theme-hint-color, #c3c2b7);
+  --accent: var(--tg-theme-button-color, #3987e5);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+
+  /* Status ranglari — kirim/chiqim/qarz uchun, kategoriyalardan ATAYLAB
+     ajratilgan (bitta ekranda ikkalasi ham ko'rinsa chalkashmasin). Bular
+     mode-invariant (light/dark bir xil), faqat matn sifatida emas, asosan
+     belgi/chiziq (fill) sifatida ishlatiladi — pastga qarang. */
+  --good: #0ca30c;      /* kirim */
+  --critical: #e66767;  /* chiqim — dark-surface qadami, matn uchun ham xavfsiz */
+  --warning: #fab219;   /* qarz berdim (menga qarzdorlar) — faqat belgi/chiziq */
+  --serious: #ec835a;   /* qarz oldim (men qarzdorman) — faqat belgi/chiziq */
+
+  --border: rgba(255, 255, 255, 0.08);
   --radius: 16px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-force-dark]) {
+    --bg: var(--tg-theme-bg-color, #f9f9f7);
+    --bg2: var(--tg-theme-secondary-bg-color, #fcfcfb);
+    --card: #ffffff;
+    --text: var(--tg-theme-text-color, #0b0b0b);
+    --hint: var(--tg-theme-hint-color, #52514e);
+    --accent: var(--tg-theme-button-color, #2a78d6);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --critical: #d03b3b;
+    --border: rgba(11, 11, 11, 0.08);
+  }
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -25,15 +51,17 @@ html, body {
   overscroll-behavior-y: none;
 }
 
-#app { padding: 12px 14px 32px; max-width: 520px; margin: 0 auto; }
+#app { padding: 12px 14px 90px; max-width: 520px; margin: 0 auto; }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  gap: 8px;
 }
-.topbar h1 { font-size: 19px; margin: 0; font-weight: 700; }
+.topbar h1 { font-size: 19px; margin: 0; font-weight: 700; flex: 1; }
+.topbar-actions { display: flex; gap: 8px; }
 
 .icon-btn {
   background: var(--bg2);
@@ -47,6 +75,7 @@ html, body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  flex-shrink: 0;
 }
 .icon-btn:active { opacity: 0.7; }
 
@@ -68,7 +97,7 @@ html, body {
   color: var(--hint);
   padding: 9px 4px;
   border-radius: 9px;
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -120,7 +149,12 @@ html, body {
 }
 .donut { width: 100%; height: 100%; transform: rotate(-90deg); }
 .donut-bg { fill: none; stroke: var(--bg2); stroke-width: 20; }
-.donut-segments circle { fill: none; stroke-width: 20; transition: stroke-dasharray 0.4s ease; }
+.donut-segments circle {
+  fill: none;
+  stroke-width: 20;
+  stroke-linecap: butt;
+  transition: stroke-dasharray 0.4s ease;
+}
 .donut-center {
   position: absolute;
   inset: 0;
@@ -131,27 +165,60 @@ html, body {
   text-align: center;
   padding: 0 20px;
 }
-.donut-value { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; }
+/* Markazdagi son — "matn har doim ink rangida" qoidasi: hech qachon
+   status/kategoriya rangida emas, doim asosiy matn rangida. */
+.donut-value { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
 .donut-sub { font-size: 12px; color: var(--hint); margin-top: 2px; }
 
-/* --- Kategoriya ro'yxati --- */
-.category-list { margin-bottom: 22px; }
+/* --- Kategoriya / status ro'yxati --- */
+.section-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--hint);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 14px 0 6px;
+}
+.section-label:first-child { margin-top: 0; }
+
+.category-list { margin-bottom: 10px; }
 .cat-row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 9px 0;
   border-bottom: 1px solid var(--border);
+  cursor: pointer;
 }
 .cat-row:last-child { border-bottom: none; }
-.cat-icon { font-size: 18px; width: 26px; text-align: center; }
+.cat-icon {
+  font-size: 15px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 .cat-info { flex: 1; min-width: 0; }
-.cat-name-row { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 4px; }
+.cat-name-row { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 4px; gap: 8px; }
 .cat-name { font-weight: 600; }
-.cat-amount { color: var(--hint); font-variant-numeric: tabular-nums; }
+.cat-amount { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 600; flex-shrink: 0; }
 .cat-bar-bg { height: 5px; border-radius: 3px; background: var(--bg2); overflow: hidden; }
 .cat-bar-fill { height: 100%; border-radius: 3px; }
 .cat-share { font-size: 11.5px; color: var(--hint); width: 34px; text-align: right; flex-shrink: 0; }
+.cat-settle {
+  border: none;
+  background: var(--good);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
 
 .empty-state { text-align: center; color: var(--hint); padding: 24px 10px; font-size: 13.5px; }
 
@@ -165,16 +232,21 @@ html, body {
   background: var(--card);
   border-radius: 12px;
   padding: 10px 12px;
+  cursor: pointer;
 }
 .tx-icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
 .tx-main { flex: 1; min-width: 0; }
 .tx-note { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tx-meta { font-size: 11.5px; color: var(--hint); margin-top: 1px; }
 .tx-amount { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 13.5px; flex-shrink: 0; }
-.tx-amount.kirim { color: var(--kirim); }
-.tx-amount.chiqim { color: var(--chiqim); }
-.tx-amount.qarz_berdim { color: var(--qarz-berdim); }
-.tx-amount.qarz_oldim { color: var(--qarz-oldim); }
+/* Faqat kirim/chiqim matnda status rangi — kontrasti ikkala mavzuda ham
+   3:1 dan yuqori (skill: status "good"/"critical" qadamlari). Qarz
+   yozuvlari 📤/📥 belgisi bilan farqlanadi, matni oddiy ink rangida
+   qoladi — warning/serious qadamlari light mavzuda matn uchun past
+   kontrastli (skill: "sub-3:1 by design, icon+label mitigatsiya"). */
+.tx-amount.kirim { color: var(--good); }
+.tx-amount.chiqim { color: var(--critical); }
+.tx-amount.qarz_berdim, .tx-amount.qarz_oldim { color: var(--text); }
 .tx-del {
   background: transparent;
   border: none;
@@ -184,7 +256,7 @@ html, body {
   cursor: pointer;
   flex-shrink: 0;
 }
-.tx-del:active { color: var(--chiqim); }
+.tx-del:active { color: var(--critical); }
 
 .load-more {
   display: block;
@@ -215,6 +287,97 @@ html, body {
 #searchInput:focus { outline: 1px solid var(--accent); }
 .search-meta { font-size: 12.5px; color: var(--hint); margin-bottom: 10px; min-height: 16px; }
 
+/* --- Suzuvchi "+" tugma --- */
+.fab {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: none;
+  font-size: 26px;
+  font-weight: 400;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 40;
+}
+.fab:active { opacity: 0.85; }
+
+/* --- Pastdan chiqadigan panel (sheet) --- */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+}
+.sheet {
+  background: var(--bg);
+  width: 100%;
+  max-height: 85vh;
+  overflow-y: auto;
+  border-radius: 18px 18px 0 0;
+  padding: 10px 18px 26px;
+}
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin: 6px auto 14px;
+}
+.sheet h2 { font-size: 16px; margin: 0 0 14px; }
+.sheet-row { margin-bottom: 14px; }
+.sheet-label { font-size: 12.5px; color: var(--hint); font-weight: 700; margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.03em; }
+
+.chip-grid { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  padding: 7px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.chip.active { background: var(--accent); color: var(--accent-text); border-color: transparent; }
+
+.field-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 14px;
+}
+
+.sheet-actions { display: flex; gap: 10px; margin-top: 18px; }
+.btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 12px;
+  border: none;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-primary { background: var(--accent); color: var(--accent-text); }
+.btn-secondary { background: var(--bg2); color: var(--text); }
+.btn-danger { background: var(--critical); color: #fff; }
+.btn-good { background: var(--good); color: #fff; }
+
+.tx-detail-header { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.tx-detail-amount { font-size: 24px; font-weight: 800; }
+.tx-detail-meta { color: var(--hint); font-size: 13px; margin-bottom: 16px; }
+
 /* --- Toast --- */
 .toast {
   position: fixed;
@@ -227,12 +390,9 @@ html, body {
   border-radius: 999px;
   font-size: 13px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  z-index: 50;
+  z-index: 80;
+  max-width: 85vw;
+  text-align: center;
 }
 
-.spinner {
-  text-align: center;
-  color: var(--hint);
-  padding: 20px;
-  font-size: 13px;
-}
+.spinner { text-align: center; color: var(--hint); padding: 20px; font-size: 13px; }
