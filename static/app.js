@@ -18,9 +18,18 @@
   const SCHEME = (tg && tg.colorScheme) ||
     (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
 
+  // CSS ham AYNAN shu qarorga bo'ysunishi uchun ildizga belgi qo'yamiz.
+  // Aks holda CSS brauzerning prefers-color-scheme'iga, JS esa Telegram
+  // mavzusiga qarab qolib, yorug' fonda qorong'i palitra chizilishi mumkin.
+  document.documentElement.setAttribute("data-theme", SCHEME);
+
+  // Qarz yo'nalishlari uchun status emas, KATEGORIYA ranglari ishlatiladi:
+  // status warning/serious juftligi (sariq/to'q sariq) oddiy ko'rishda ham
+  // ajratib bo'lmas darajada yaqin (ΔE 13.6 < 15). Ko'k+to'q sariq juftligi
+  // validatordan ikkala mavzuda to'liq o'tadi (ΔE 24.7+).
   const STATUS = SCHEME === "light"
-    ? { kirim: "#0ca30c", chiqim: "#d03b3b", qarz_berdim: "#fab219", qarz_oldim: "#ec835a" }
-    : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#fab219", qarz_oldim: "#ec835a" };
+    ? { kirim: "#0ca30c", chiqim: "#d03b3b", qarz_berdim: "#2a78d6", qarz_oldim: "#eb6834" }
+    : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#3987e5", qarz_oldim: "#d95926" };
 
   const CATEGORY_PALETTE = SCHEME === "light"
     ? ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
@@ -46,11 +55,18 @@
     detailTx: null,
   };
 
+  /** Date -> "YYYY-MM-DD" MAHALLIY vaqt bo'yicha.
+   * toISOString() ishlatib bo'lmaydi: u UTC'ga o'giradi va musbat mintaqada
+   * (masalan Toshkent UTC+5) oyning 1-kuni oldingi oyga tushib qoladi. */
+  function isoLocal(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
   function todayIso() {
-    const d = new Date();
-    const tz = d.getTimezoneOffset();
-    const local = new Date(d.getTime() - tz * 60000);
-    return local.toISOString().slice(0, 10);
+    return isoLocal(new Date());
   }
 
   // ----------------------------------------------------------------------- //
@@ -123,6 +139,16 @@
     toast._t = setTimeout(() => el.classList.add("hidden"), 2400);
   }
 
+  /** Foizni o'qishga qulay yozadi. Nolga teng bo'lmagan juda kichik ulush
+   * "0%" emas, "<1%" deb ko'rsatiladi — aks holda summa bor-u, foiz nol
+   * bo'lib chiqib, ma'lumot noto'g'ri o'qiladi. */
+  function fmtPct(share) {
+    if (share <= 0) return "0%";
+    const pct = share * 100;
+    if (pct < 1) return "<1%";
+    return `${Math.round(pct)}%`;
+  }
+
   function escapeHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -146,7 +172,8 @@
   // ----------------------------------------------------------------------- //
 
   function shiftRef(period, isoRef, delta) {
-    const d = new Date(isoRef + "T00:00:00");
+    const [y, m, day] = isoRef.split("-").map(Number);
+    const d = new Date(y, m - 1, day);
     if (period === "kun") {
       d.setDate(d.getDate() + delta);
     } else if (period === "hafta") {
@@ -154,14 +181,32 @@
     } else if (period === "oy") {
       d.setMonth(d.getMonth() + delta, 1);
     } else if (period === "yil") {
-      d.setFullYear(d.getFullYear() + delta);
+      d.setFullYear(d.getFullYear() + delta, d.getMonth(), 1);
     }
-    return d.toISOString().slice(0, 10);
+    return isoLocal(d);
   }
 
   // ----------------------------------------------------------------------- //
   // Donut (SVG)
   // ----------------------------------------------------------------------- //
+
+  /** Donut ostidagi yorliq — identifikatsiya HECH QACHON faqat rangga
+   * tayanmasligi uchun (yashil/qizil rang ko'rligida deyarli bir xil
+   * ko'rinadi). Har bir bo'lak nomi va aniq summasi bilan yoziladi. */
+  function renderLegend(items, currency) {
+    const el = document.getElementById("donutLegend");
+    if (!items || !items.length) { el.innerHTML = ""; return; }
+    const total = items.reduce((s, i) => s + i.value, 0);
+    el.innerHTML = items.map((i) => {
+      const share = total > 0 ? i.value / total : 0;
+      return `<div class="legend-item">
+        <span class="legend-dot" style="background:${i.color}"></span>
+        <span class="legend-name">${escapeHtml(i.label)}</span>
+        <span class="legend-value">${fmtMoney(i.value, currency)}</span>
+        <span class="legend-pct">${fmtPct(share)}</span>
+      </div>`;
+    }).join("");
+  }
 
   function renderDonut(segments, centerValue, centerSub) {
     const g = document.getElementById("donutSegments");
@@ -213,7 +258,7 @@
             </div>
             <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
           </div>
-          <div class="cat-share">${Math.round(share * 100)}%</div>
+          <div class="cat-share">${fmtPct(share)}</div>
         </div>`;
     });
     return html;
@@ -297,6 +342,7 @@
 
     if (!data) {
       renderDonut([], fmtMoney(0, cur), "");
+      renderLegend([], cur);
       listEl.innerHTML = '<div class="empty-state">Bu davrda yozuv yo\'q.</div>';
       return;
     }
@@ -310,6 +356,10 @@
         fmtMoney(data.farq, cur),
         "Farq (kirim − chiqim)"
       );
+      renderLegend([
+        { label: "Kirim", value: data.kirim, color: STATUS.kirim },
+        { label: "Chiqim", value: data.chiqim, color: STATUS.chiqim },
+      ], cur);
       listEl.innerHTML =
         renderCategorySection("Kirim kategoriyalari", data.kirim_kategoriyalari, data.kirim, cur, "kirim") +
         renderCategorySection("Chiqim kategoriyalari", data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
@@ -319,6 +369,9 @@
         folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
         fmtMoney(data.kirim, cur), "Kirim"
       );
+      // Kategoriya bo'laklari pastdagi ro'yxatda nomi bilan berilgan —
+      // takrorlamaymiz, faqat 2 bo'lakli ko'rinishlarda yorliq kerak.
+      renderLegend([], cur);
       listEl.innerHTML = renderCategorySection("Kategoriyalar", data.kirim_kategoriyalari, data.kirim, cur, "kirim");
     } else if (state.kind === "chiqim") {
       const folded = foldToOther(data.chiqim_kategoriyalari);
@@ -326,6 +379,7 @@
         folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
         fmtMoney(data.chiqim, cur), "Chiqim"
       );
+      renderLegend([], cur);
       listEl.innerHTML = renderCategorySection("Kategoriyalar", data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
     }
 
@@ -334,7 +388,7 @@
 
   function renderQarzKind() {
     const listEl = document.getElementById("categoryList");
-    if (!state.debts) { renderDonut([], "…", ""); listEl.innerHTML = ""; return; }
+    if (!state.debts) { renderDonut([], "…", ""); renderLegend([], "som"); listEl.innerHTML = ""; return; }
     const cur = state.currency;
     const berdim = (state.debts.qarz_berdim.totals[cur]) || 0;
     const oldim = (state.debts.qarz_oldim.totals[cur]) || 0;
@@ -346,6 +400,10 @@
       fmtMoney(berdim - oldim, cur),
       "Sof qarz (menga − mendan)"
     );
+    renderLegend([
+      { label: "📤 Menga qarzdorlar", value: berdim, color: STATUS.qarz_berdim },
+      { label: "📥 Men qarzdorman", value: oldim, color: STATUS.qarz_oldim },
+    ], cur);
     const berdimItems = state.debts.qarz_berdim.items[cur] || [];
     const oldimItems = state.debts.qarz_oldim.items[cur] || [];
     listEl.innerHTML =
@@ -355,7 +413,8 @@
   }
 
   function bindCategoryClicks() {
-    document.querySelectorAll("[data-cat-click]").forEach((el) => {
+    const listEl = document.getElementById("categoryList");
+    listEl.querySelectorAll("[data-cat-click]").forEach((el) => {
       el.onclick = () => {
         openFilteredList(el.dataset.kind, el.dataset.category);
       };
@@ -363,7 +422,8 @@
   }
 
   function bindSettleButtons() {
-    document.querySelectorAll("[data-settle-id]").forEach((btn) => {
+    const listEl = document.getElementById("categoryList");
+    listEl.querySelectorAll("[data-settle-id]").forEach((btn) => {
       btn.onclick = (ev) => {
         ev.stopPropagation();
         confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(btn.dataset.settleId));
@@ -373,7 +433,10 @@
 
   async function loadRecent(append) {
     const listEl = document.getElementById("recentList");
-    if (!append) listEl.innerHTML = '<div class="spinner">Yuklanmoqda…</div>';
+    if (!append) {
+      listEl.innerHTML = '<div class="spinner">Yuklanmoqda…</div>';
+      setListTitle("", false);  // filtr yorlig'i eski holatda qolib ketmasin
+    }
 
     if (state.kind === "qarz") {
       document.getElementById("loadMore").classList.add("hidden");
@@ -417,11 +480,30 @@
     });
     const data = await api(`/api/transactions?${params.toString()}`);
     const filtered = data.items.filter((t) => t.category === category);
+
+    // Filtr qo'llanganini ko'rsatuvchi yorliq + uni bekor qilish tugmasi.
+    setListTitle(`${catIcon(category)} ${category}`, true);
+
     listEl.innerHTML = "";
     if (!filtered.length) { listEl.innerHTML = '<div class="empty-state">Yozuv yo\'q.</div>'; return; }
     filtered.forEach((tx) => listEl.appendChild(buildTxRow(tx)));
     document.getElementById("loadMore").classList.add("hidden");
-    document.querySelector(".section-title").scrollIntoView({ behavior: "smooth", block: "start" });
+    document.getElementById("listTitle").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  /** Ro'yxat sarlavhasini o'zgartiradi; filtr faol bo'lsa "✕ tozalash" tugmasi bilan. */
+  function setListTitle(text, filtered) {
+    const el = document.getElementById("listTitle");
+    if (!filtered) {
+      el.innerHTML = "So'nggi yozuvlar";
+      return;
+    }
+    el.innerHTML = `Filtr: ${escapeHtml(text)} <button class="clear-filter" id="clearFilter">✕ tozalash</button>`;
+    el.querySelector("#clearFilter").onclick = () => {
+      setListTitle("", false);
+      state.recentOffset = 0;
+      loadRecent(false);
+    };
   }
 
   function buildTxRow(tx) {
@@ -485,11 +567,14 @@
     const cats = (state.me.categories_by_kind[tx.kind] || []);
 
     let html = `
-      <div class="tx-detail-header">
-        <span style="font-size:22px">${kindIcon(tx.kind)}</span>
-        <span class="tx-detail-amount" style="color:${isDebt ? "var(--text)" : (tx.kind === "kirim" ? "var(--good)" : "var(--critical)")}">
-          ${fmtMoney(tx.amount, tx.currency)}
-        </span>
+      <div class="sheet-titlebar">
+        <div class="tx-detail-header">
+          <span style="font-size:22px">${kindIcon(tx.kind)}</span>
+          <span class="tx-detail-amount" style="color:${isDebt ? "var(--text)" : (tx.kind === "kirim" ? "var(--good)" : "var(--critical)")}">
+            ${fmtMoney(tx.amount, tx.currency)}
+          </span>
+        </div>
+        <button class="icon-btn" id="detailClose" aria-label="Yopish">✕</button>
       </div>
       <div class="tx-detail-meta">
         ${escapeHtml(kindLabel(tx.kind))} · ${fmtDate(tx.date)}
@@ -523,18 +608,22 @@
       <button class="btn btn-danger" id="deleteBtn">🗑 O'chirish</button>
     </div>`;
 
-    document.getElementById("detailBody").innerHTML = html;
+    const body = document.getElementById("detailBody");
+    body.innerHTML = html;
     openSheet("detailBackdrop");
 
-    document.querySelectorAll("#catChips .chip").forEach((chip) => {
+    // Selektorlar faqat shu panel ichida — sahifadagi bir xil atributli
+    // boshqa elementlarga tegmasligi uchun.
+    body.querySelectorAll("#catChips .chip").forEach((chip) => {
       chip.onclick = () => updateTxCategory(tx.id, chip.dataset.cat);
     });
-    const toggleBtn = document.getElementById("toggleKindBtn");
+    const toggleBtn = body.querySelector("#toggleKindBtn");
     if (toggleBtn) toggleBtn.onclick = () => toggleTxKind(tx.id, tx.kind === "kirim" ? "chiqim" : "kirim");
-    const settleBtn = document.getElementById("settleBtn");
+    const settleBtn = body.querySelector("#settleBtn");
     if (settleBtn) settleBtn.onclick = () => confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(tx.id));
-    document.getElementById("deleteBtn").onclick = () =>
+    body.querySelector("#deleteBtn").onclick = () =>
       confirmAction("Bu yozuvni o'chirasizmi?", () => deleteTx(tx.id));
+    body.querySelector("#detailClose").onclick = () => closeSheet("detailBackdrop");
 
     if (tx.receipt_id) loadReceiptItems(tx.receipt_id, tx.id);
   }
@@ -643,7 +732,10 @@
     if (!cats.includes(addForm.category)) addForm.category = cats[0] || "";
 
     const html = `
-      <h2>➕ Yangi yozuv</h2>
+      <div class="sheet-titlebar">
+        <h2>➕ Yangi yozuv</h2>
+        <button class="icon-btn" id="addClose" aria-label="Yopish">✕</button>
+      </div>
 
       <div class="sheet-row">
         <div class="sheet-label">Turi</div>
@@ -697,19 +789,25 @@
         <button class="btn btn-primary" id="addSave">Saqlash</button>
       </div>
     `;
-    document.getElementById("addBody").innerHTML = html;
+    const body = document.getElementById("addBody");
+    body.innerHTML = html;
 
-    document.querySelectorAll('[data-kind]').forEach((btn) => {
+    // MUHIM: selektorlar FAQAT shu panel ichida qidirilishi kerak.
+    // Aks holda dashboard'dagi bir xil atributli elementlar (tur tablari
+    // data-kind, kategoriya qatorlari data-kind) ham qayta bog'lanib,
+    // ishlamay qoladi.
+    body.querySelectorAll("[data-kind]").forEach((btn) => {
       btn.onclick = () => { captureFormValues(); addForm.kind = btn.dataset.kind; renderAddForm(); };
     });
-    document.querySelectorAll('[data-currency]').forEach((btn) => {
+    body.querySelectorAll("[data-currency]").forEach((btn) => {
       btn.onclick = () => { captureFormValues(); addForm.currency = btn.dataset.currency; renderAddForm(); };
     });
-    document.querySelectorAll('[data-cat]').forEach((btn) => {
+    body.querySelectorAll("[data-cat]").forEach((btn) => {
       btn.onclick = () => { captureFormValues(); addForm.category = btn.dataset.cat; renderAddForm(); };
     });
-    document.getElementById("addCancel").onclick = () => closeSheet("addBackdrop");
-    document.getElementById("addSave").onclick = submitAddForm;
+    body.querySelector("#addCancel").onclick = () => closeSheet("addBackdrop");
+    body.querySelector("#addClose").onclick = () => closeSheet("addBackdrop");
+    body.querySelector("#addSave").onclick = submitAddForm;
   }
 
   async function submitAddForm() {

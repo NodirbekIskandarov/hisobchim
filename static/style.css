@@ -26,8 +26,12 @@
   --radius: 16px;
 }
 
+/* Yorug' mavzu qiymatlari. app.js ildizga data-theme="light|dark" qo'yadi
+   (Telegram mavzusidan olingan) — CSS va JS palitralari HAR DOIM bir xil
+   qarorga bo'ysunishi uchun. data-theme hali qo'yilmagan (JS yuklanmagan)
+   holat uchun brauzer sozlamasi zaxira sifatida ishlaydi. */
 @media (prefers-color-scheme: light) {
-  :root:not([data-force-dark]) {
+  :root:not([data-theme="dark"]) {
     --bg: var(--tg-theme-bg-color, #f9f9f7);
     --bg2: var(--tg-theme-secondary-bg-color, #fcfcfb);
     --card: #ffffff;
@@ -38,6 +42,18 @@
     --critical: #d03b3b;
     --border: rgba(11, 11, 11, 0.08);
   }
+}
+
+:root[data-theme="light"] {
+  --bg: var(--tg-theme-bg-color, #f9f9f7);
+  --bg2: var(--tg-theme-secondary-bg-color, #fcfcfb);
+  --card: #ffffff;
+  --text: var(--tg-theme-text-color, #0b0b0b);
+  --hint: var(--tg-theme-hint-color, #52514e);
+  --accent: var(--tg-theme-button-color, #2a78d6);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --critical: #d03b3b;
+  --border: rgba(11, 11, 11, 0.08);
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -167,8 +183,34 @@ html, body {
 }
 /* Markazdagi son — "matn har doim ink rangida" qoidasi: hech qachon
    status/kategoriya rangida emas, doim asosiy matn rangida. */
-.donut-value { font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
-.donut-sub { font-size: 12px; color: var(--hint); margin-top: 2px; }
+/* Uzun sonlar (masalan 88 909 000 so'm) donut teshigidan toshib ketmasligi
+   uchun matn o'ralishi va biroz kichikroq o'lcham. */
+.donut-value {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.15;
+  word-break: break-word;
+}
+.donut-sub { font-size: 11.5px; color: var(--hint); margin-top: 3px; line-height: 1.25; }
+
+/* --- Donut yorlig'i (legend) --- */
+.donut-legend { margin: -6px 0 18px; }
+.donut-legend:empty { display: none; }
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--border);
+}
+.legend-item:last-child { border-bottom: none; }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.legend-name { flex: 1; font-weight: 600; min-width: 0; }
+.legend-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+.legend-pct { color: var(--hint); font-size: 11.5px; width: 34px; text-align: right; }
 
 /* --- Kategoriya / status ro'yxati --- */
 .section-label {
@@ -223,7 +265,26 @@ html, body {
 .empty-state { text-align: center; color: var(--hint); padding: 24px 10px; font-size: 13.5px; }
 
 /* --- Tranzaksiyalar ro'yxati --- */
-.section-title { font-size: 14px; color: var(--hint); margin: 4px 0 8px; font-weight: 700; }
+.section-title {
+  font-size: 14px;
+  color: var(--hint);
+  margin: 4px 0 8px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.clear-filter {
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+}
 .tx-list { display: flex; flex-direction: column; gap: 6px; }
 .tx-row {
   display: flex;
@@ -333,7 +394,16 @@ html, body {
   border-radius: 2px;
   margin: 6px auto 14px;
 }
-.sheet h2 { font-size: 16px; margin: 0 0 14px; }
+.sheet h2 { font-size: 16px; margin: 0; }
+
+.sheet-titlebar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.sheet-titlebar .icon-btn { width: 32px; height: 32px; font-size: 14px; }
 .sheet-row { margin-bottom: 14px; }
 .sheet-label { font-size: 12.5px; color: var(--hint); font-weight: 700; margin-bottom: 7px; text-transform: uppercase; letter-spacing: 0.03em; }
 
@@ -359,7 +429,18 @@ html, body {
   font-size: 14px;
 }
 
-.sheet-actions { display: flex; gap: 10px; margin-top: 18px; }
+/* Panel pastidagi asosiy amallar — yopishqoq, chunki kategoriya chiplari
+   uzun ro'yxat bo'lib, "Saqlash" tugmasi ekrandan chiqib ketardi. */
+.sheet-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 10px 0 4px;
+  box-shadow: 0 -10px 14px -6px var(--bg);
+}
 .btn {
   flex: 1;
   padding: 12px;
