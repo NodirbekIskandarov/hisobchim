@@ -47,6 +47,9 @@
     kind: "hammasi",
     currency: "som",
     currencies: ["som"],
+    // Foydalanuvchi valyutani o'zi tanlaganmi. Tanlamagan bo'lsa —
+    // birlashtirilgan «Hammasi» ko'rinishi standart bo'ladi.
+    currencyPicked: false,
     summary: null,
     debts: null,
     recentOffset: 0,
@@ -96,6 +99,7 @@
 
   function fmtMoney(value, currency) {
     const symbols = (state.me && state.me.currency_symbols) || { som: "so'm", usd: "$" };
+    // «hammasi» — barcha valyuta asosiy valyutaga o'girilgan holat.
     if (currency === "usd") {
       const v = Math.round(value * 100) / 100;
       let text = Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
@@ -351,7 +355,9 @@
     document.getElementById("rangeLabel").textContent = data.label;
 
     state.currencies = data.currencies.length ? data.currencies : ["som"];
-    if (!state.currencies.includes(state.currency)) state.currency = state.currencies[0];
+    if (!state.currencyPicked || !state.currencies.includes(state.currency)) {
+      state.currency = state.currencies[0];
+    }
     renderCurrencyToggle();
 
     renderCurrentKind();
@@ -371,9 +377,16 @@
     const symbols = state.me.currency_symbols;
     state.currencies.forEach((cur) => {
       const btn = document.createElement("button");
-      btn.textContent = symbols[cur] || cur.toUpperCase();
+      // «hammasi» — valyutalar asosiy valyutada birlashtirilgan ko'rinish.
+      btn.textContent = cur === "hammasi" ? "Hammasi" : (symbols[cur] || cur.toUpperCase());
       if (cur === state.currency) btn.classList.add("active");
-      btn.onclick = () => { state.currency = cur; renderCurrentKind(); loadRecent(false); };
+      btn.onclick = () => {
+        state.currency = cur;
+        state.currencyPicked = true;
+        renderCurrencyToggle();
+        renderCurrentKind();
+        loadRecent(false);
+      };
       el.appendChild(btn);
     });
   }

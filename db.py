@@ -77,6 +77,16 @@ CREATE TABLE IF NOT EXISTS subscription_requests (
 );
 CREATE INDEX IF NOT EXISTS idx_req_status ON subscription_requests(status, created_at DESC);
 
+-- Valyuta kurslari. Har kun uchun bir marta saqlanadi, shunda o'tgan
+-- oylardagi hisobot kurs o'zgarganda ham o'zgarmaydi.
+CREATE TABLE IF NOT EXISTS rates (
+    day      TEXT NOT NULL,
+    currency TEXT NOT NULL,
+    rate     REAL NOT NULL,
+    source   TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (day, currency)
+);
+
 -- Kategoriya bo'yicha oylik byudjet. 80% va 100% da bir martadan
 -- ogohlantiriladi; `notified` shu oyni «YYYY-MM:daraja» ko'rinishida saqlaydi.
 CREATE TABLE IF NOT EXISTS budgets (
@@ -109,6 +119,10 @@ TABLE_MIGRATIONS = [
     ("users", "warned_stage",
      "ALTER TABLE users ADD COLUMN warned_stage INTEGER NOT NULL DEFAULT 0"),
     ("users", "lang", "ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT 'uz'"),
+    # Yozuv kiritilgan paytdagi kurs va asosiy valyutadagi qiymati.
+    # Shu ikkisi bo'lgani uchun so'm va dollar bitta jamlanmada qo'shiladi.
+    ("transactions", "rate", "ALTER TABLE transactions ADD COLUMN rate REAL NOT NULL DEFAULT 1"),
+    ("transactions", "amount_base", "ALTER TABLE transactions ADD COLUMN amount_base REAL"),
 ]
 
 
@@ -143,11 +157,98 @@ def init() -> None:
             cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
             if cols and column not in cols:
                 conn.execute(sql)
+        # Eski yozuvlarda amount_base bo'sh: so'mlilarini darhol to'ldiramiz,
+        # valyutalilarini backfill_base() tarmoq orqali kurs olib to'ldiradi.
+        conn.execute(
+            "UPDATE transactions SET amount_base = amount, rate = 1 "
+            "WHERE amount_base IS NULL AND currency = 'som'")
+
+
+def backfill_base(default_rate: float | None = None) -> int:
+    """amount_base bo'sh qolgan valyutali yozuvlarni to'ldiradi.
+
+    Har bir yozuv uchun O'SHA KUNDAGI kurs olinadi — bugungisi emas.
+    """
+    import rates as rates_module
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, amount, currency, occurred_on FROM transactions "
+            "WHERE amount_base IS NULL").fetchall()
+        filled = 0
+        for r in rows:
+            try:
+                day = date.fromisoformat(r["occurred_on"])
+            except (TypeError, ValueError):
+                day = date.today()
+            try:
+                rate = rates_module.get(r["currency"], day)
+            except Exception:
+                rate = default_rate or config.USD_RATE_FALLBACK
+            conn.execute(
+                "UPDATE transactions SET rate = ?, amount_base = ? WHERE id = ?",
+                (rate, round(float(r["amount"]) * rate, 2), r["id"]))
+            filled += 1
+    return filled
+
+
+# --------------------------------------------------------------------------- #
+# Kurslar
+# --------------------------------------------------------------------------- #
+
+def get_rate(currency: str, day: date) -> float | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT rate FROM rates WHERE day = ? AND currency = ?",
+            (day.isoformat(), currency.lower())).fetchone()
+        return float(row["rate"]) if row else None
+
+
+def set_rate(currency: str, day: date, rate: float, source: str = "") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO rates (day, currency, rate, source) VALUES (?,?,?,?) "
+            "ON CONFLICT(day, currency) DO UPDATE SET rate = excluded.rate, "
+            "source = excluded.source",
+            (day.isoformat(), currency.lower(), float(rate), source))
+
+
+def rate_source(currency: str, day: date) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT source FROM rates WHERE day = ? AND currency = ?",
+            (day.isoformat(), currency.lower())).fetchone()
+        return row["source"] if row else None
+
+
+def latest_rate(currency: str) -> float | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT rate FROM rates WHERE currency = ? ORDER BY day DESC LIMIT 1",
+            (currency.lower(),)).fetchone()
+        return float(row["rate"]) if row else None
 
 
 # --------------------------------------------------------------------------- #
 # Yozish
 # --------------------------------------------------------------------------- #
+
+def _base_of(amount: float, currency: str, occurred_on: str) -> tuple[float, float]:
+    """(kurs, asosiy valyutadagi summa). So'm uchun kurs 1.
+
+    Kurs olishda tarmoq xatosi bo'lsa ham yozuv yo'qolmasligi kerak —
+    shuning uchun har qanday xatolikda zaxira qiymatga tushamiz.
+    """
+    if (currency or "som").lower() == "som":
+        return 1.0, round(float(amount), 2)
+    try:
+        import rates as rates_module
+        day = date.fromisoformat(occurred_on)
+        rate = rates_module.get(currency, day)
+    except Exception:                       # tarmoq, format yoki boshqa xato
+        rate = float(config.USD_RATE_FALLBACK)
+    return rate, round(float(amount) * rate, 2)
+
 
 def add_transaction(
     user_id: int,
@@ -162,14 +263,15 @@ def add_transaction(
     currency: str = "som",
 ) -> int:
     occurred_on = occurred_on or date.today().isoformat()
+    rate, amount_base = _base_of(amount, currency, occurred_on)
     with get_conn() as conn:
         cur = conn.execute(
             """INSERT INTO transactions
                (user_id, kind, amount, category, note, person, occurred_on,
-                raw_text, receipt_id, currency)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                raw_text, receipt_id, currency, rate, amount_base)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, kind, float(amount), category, note, person,
-             occurred_on, raw_text, receipt_id, currency),
+             occurred_on, raw_text, receipt_id, currency, rate, amount_base),
         )
         return int(cur.lastrowid)
 
@@ -177,16 +279,23 @@ def add_transaction(
 def add_many(rows: list[dict]) -> list[int]:
     """Bir nechta yozuvni bitta tranzaksiyada saqlaydi (chek uchun)."""
     ids: list[int] = []
+    # Kurs bitta chek uchun bir marta hisoblanadi — hamma qator bir kunda
+    # va bir valyutada bo'ladi.
+    prepared = [
+        (r, *_base_of(r["amount"], r.get("currency", "som"), r["occurred_on"]))
+        for r in rows
+    ]
     with get_conn() as conn:
-        for r in rows:
+        for r, rate, amount_base in prepared:
             cur = conn.execute(
                 """INSERT INTO transactions
                    (user_id, kind, amount, category, note, person, occurred_on,
-                    raw_text, receipt_id, currency)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    raw_text, receipt_id, currency, rate, amount_base)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (r["user_id"], r["kind"], float(r["amount"]), r["category"],
                  r.get("note", ""), r.get("person"), r["occurred_on"],
-                 r.get("raw_text", ""), r.get("receipt_id"), r.get("currency", "som")),
+                 r.get("raw_text", ""), r.get("receipt_id"),
+                 r.get("currency", "som"), rate, amount_base),
             )
             ids.append(int(cur.lastrowid))
     return ids
@@ -284,6 +393,55 @@ def totals_by_currency(user_id: int, start: date, end: date) -> dict[str, dict[s
             bucket = result.setdefault(row["currency"], {k: 0.0 for k in config.KINDS})
             bucket[row["kind"]] = float(row["total"])
         return result
+
+
+def totals_unified(user_id: int, start: date, end: date) -> dict:
+    """Barcha valyutalarni asosiy valyutaga o'girib jamlaydi.
+
+    Odamning hamyoni bitta: dollarda to'lasa ham pul o'sha umumiy
+    mablag'idan chiqadi. `amount_base` — yozuv kiritilgan kundagi kurs
+    bilan hisoblangan so'mdagi qiymat.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT kind, currency,
+                      COALESCE(SUM(amount_base), 0) AS base,
+                      COALESCE(SUM(amount), 0) AS orig,
+                      COUNT(*) AS n
+               FROM transactions
+               WHERE user_id = ? AND occurred_on BETWEEN ? AND ?
+               GROUP BY kind, currency""",
+            (user_id, start.isoformat(), end.isoformat()),
+        ).fetchall()
+
+    totals = {k: 0.0 for k in config.KINDS}
+    # Chet el valyutasidagi ulush — hisobotda alohida eslatib o'tiladi.
+    foreign: dict[str, dict[str, float]] = {}
+    for r in rows:
+        totals[r["kind"]] = round(totals[r["kind"]] + float(r["base"]), 2)
+        if r["currency"] != "som":
+            bucket = foreign.setdefault(r["currency"], {"orig": 0.0, "base": 0.0,
+                                                        "count": 0})
+            bucket["orig"] = round(bucket["orig"] + float(r["orig"]), 2)
+            bucket["base"] = round(bucket["base"] + float(r["base"]), 2)
+            bucket["count"] += r["n"]
+    return {"totals": totals, "foreign": foreign}
+
+
+def by_category_unified(
+    user_id: int, start: date, end: date, kind: str
+) -> list[tuple[str, float, int]]:
+    """Kategoriyalar kesimi — valyutalar asosiy valyutada birlashtirilgan."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """SELECT category, SUM(amount_base) AS total, COUNT(*) AS cnt
+               FROM transactions
+               WHERE user_id = ? AND kind = ? AND occurred_on BETWEEN ? AND ?
+               GROUP BY category ORDER BY total DESC""",
+            (user_id, kind, start.isoformat(), end.isoformat()),
+        )
+        return [(r["category"], float(r["total"] or 0), int(r["cnt"]))
+                for r in cur.fetchall()]
 
 
 def by_category(

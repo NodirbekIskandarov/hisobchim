@@ -110,30 +110,61 @@ def _currency_block(user_id: int, start: date, end: date, currency: str, days: i
 
 
 def summary_text(user_id: int, period: str) -> str:
+    """Davr hisoboti — barcha valyutalar bitta jamlanmada.
+
+    Odamning hamyoni bitta: dollarda to'lagan puli ham o'sha umumiy
+    mablag'idan chiqadi. Shuning uchun jamlanma asosiy valyutada
+    beriladi, chet el valyutasidagi ulush esa alohida eslatiladi.
+    Har bir yozuv o'z kunidagi kurs bilan o'girilgan — kurs bugun
+    o'zgarsa ham o'tgan oy hisoboti o'zgarmaydi.
+    """
     start, end, label = period_range(period)
     days = (end - start).days + 1
-    by_currency = db.totals_by_currency(user_id, start, end)
 
-    other_currencies = [c for c in by_currency if c != "som"]
-    som_empty = all(v == 0 for v in by_currency.get("som", {}).values())
+    data = db.totals_unified(user_id, start, end)
+    t, foreign = data["totals"], data["foreign"]
+    kirim = t[config.KIND_KIRIM]
+    chiqim = t[config.KIND_CHIQIM]
+    balans = kirim - chiqim
 
     lines = [f"📊 <b>{esc(label)}</b>", ""]
-    if not (som_empty and other_currencies):
-        # Faqat boshqa valyutada yozuv bo'lsa, bo'sh so'm blokini ko'rsatmaymiz.
-        lines += _currency_block(user_id, start, end, "som", days)
-
-    # Boshqa valyutalar (masalan USD) bo'lsa — alohida blok, kurs orqali
-    # qo'shilmaydi, chunki kurs vaqt bilan o'zgaradi va chalkashlik keltirib chiqaradi.
-    for currency in other_currencies:
-        label_txt = config.CURRENCY_SYMBOLS.get(currency, currency.upper())
-        if lines[-1] != "":
-            lines.append("")
-        lines.append(f"<b>{esc(label_txt)} bo'yicha:</b>")
-        lines += _currency_block(user_id, start, end, currency, days)
-
-    if som_empty and not other_currencies:
-        lines.append("")
+    if not any(t.values()):
         lines.append("<i>Bu davrda yozuv yo'q.</i>")
+        return "\n".join(lines)
+
+    lines.append(f"🔺 Kirim:  {fmt_money(kirim)}")
+    lines.append(f"🔻 Chiqim: {fmt_money(chiqim)}")
+    lines.append(f"{'🟢' if balans >= 0 else '🔴'} Farq:   {fmt_money(balans)}")
+
+    if foreign:
+        parts = []
+        for cur, info in foreign.items():
+            parts.append(f"{fmt_money(info['orig'], cur)} ≈ {fmt_money(info['base'])}")
+        lines.append("")
+        lines.append(f"<i>Shundan chet el valyutasida: {' · '.join(parts)}</i>")
+
+    cats = db.by_category_unified(user_id, start, end, config.KIND_CHIQIM)
+    if cats:
+        lines.append("")
+        lines.append("<b>Chiqim kategoriyalari:</b>")
+        for name, total, cnt in cats[:8]:
+            share = total / chiqim if chiqim else 0
+            icon = config.CATEGORY_ICONS.get(name, "•")
+            lines.append(f"{icon} {esc(name)} — {fmt_money(total)} ({share * 100:.0f}%)")
+            lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
+
+    qarz_berdim = t[config.KIND_QARZ_BERDIM]
+    qarz_oldim = t[config.KIND_QARZ_OLDIM]
+    if qarz_berdim or qarz_oldim:
+        lines.append("")
+        if qarz_berdim:
+            lines.append(f"📤 Qarz berdim: {fmt_money(qarz_berdim)}")
+        if qarz_oldim:
+            lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim)}")
+
+    if chiqim and days >= 2:
+        lines.append("")
+        lines.append(f"<i>Kuniga o'rtacha: {fmt_money(chiqim / days)}</i>")
 
     return "\n".join(lines)
 

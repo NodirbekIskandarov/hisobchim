@@ -39,6 +39,7 @@ import ai
 import config
 import db
 import i18n
+import rates
 import reports
 import sharecard
 
@@ -559,11 +560,10 @@ async def on_share_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer("🖼")
     start, end, label = reports.period_range(period)
-    by_cur = db.totals_by_currency(user_id, start, end)
-    # Asosiy valyuta — eng ko'p harakat bo'lgani.
-    currency = max(by_cur, key=lambda c: sum(by_cur[c].values()), default="som")
-    totals = by_cur.get(currency, {})
-    cats = db.by_category(user_id, start, end, config.KIND_CHIQIM, currency)
+    data = db.totals_unified(user_id, start, end)
+    totals = data["totals"]
+    currency = "som"
+    cats = db.by_category_unified(user_id, start, end, config.KIND_CHIQIM)
     entries = len(db.list_range(user_id, start, end))
 
     me = await context.bot.get_me()
@@ -842,7 +842,7 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
     ])
 
     start, end, _ = reports.period_range("bugun")
-    day_total = db.totals(user_id, start, end)[config.KIND_CHIQIM]
+    day_total = db.totals_unified(user_id, start, end)["totals"][config.KIND_CHIQIM]
 
     _last_receipt.set(user_id, {
         "receipt_id": receipt_id,
@@ -1069,14 +1069,9 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     # Bugungi umumiy chiqim — qisqa kontekst uchun, har bir valyuta alohida
     start, end, _ = reports.period_range("bugun")
-    day_by_currency = db.totals_by_currency(user_id, start, end)
-    day_parts = [
-        reports.fmt_money(amounts[config.KIND_CHIQIM], cur)
-        for cur, amounts in day_by_currency.items()
-        if amounts[config.KIND_CHIQIM]
-    ]
-    if day_parts:
-        body += f"\n\n<i>Bugungi chiqim: {' + '.join(day_parts)}</i>"
+    day_total = db.totals_unified(user_id, start, end)["totals"][config.KIND_CHIQIM]
+    if day_total:
+        body += f"\n\n<i>Bugungi chiqim: {reports.fmt_money(day_total)}</i>"
 
     single_kind = parsed["yozuvlar"][0]["turi"] if len(saved_ids) == 1 else None
     await message.reply_text(
@@ -1513,6 +1508,60 @@ Karta ma'lumotlaringiz bizga kelmaydi. Siz o'zingiz o'tkazma qilasiz
 va faqat chek skrinshotini yuborasiz.
 
 Savol: {contact}"""
+
+
+@private_only
+async def cmd_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/kurs — bugungi kurs; /kurs 12800 — qo'lda o'rnatish."""
+    msg = update.effective_message
+    args = context.args or []
+    today = reports.today()
+
+    if args:
+        value = _parse_amount_uz(args[0])
+        # «12800» ni ming deb olib yubormaslik uchun: kurs har doim to'liq son.
+        raw = "".join(ch for ch in args[0] if ch.isdigit() or ch == ".")
+        try:
+            value = float(raw)
+        except ValueError:
+            value = None
+        if not value or not (1_000 <= value <= 1_000_000):
+            await msg.reply_text(
+                "Kursni to'liq yozing, masalan: <code>/kurs 12800</code>",
+                parse_mode=ParseMode.HTML)
+            return
+        db.set_rate("usd", today, value, f"qolda:{update.effective_user.id}")
+        rates.clear_cache()
+        await msg.reply_text(
+            f"✅ Bugungi kurs o'rnatildi: <b>1 $ = {reports.fmt_money(value)}</b>\n\n"
+            f"<i>Bugundan keyingi yozuvlar shu kurs bilan hisoblanadi. "
+            f"Ilgari kiritilgan yozuvlar o'z kunidagi kursda qoladi.</i>",
+            parse_mode=ParseMode.HTML)
+        return
+
+    rate = await asyncio.to_thread(rates.get, "usd", today)
+    source = db.rate_source("usd", today) or "avtomatik"
+    manba = "Markaziy bank" if source.startswith("cbu") else (
+        "qo'lda kiritilgan" if source.startswith("qolda") else source)
+    await msg.reply_text(
+        f"💱 <b>Valyuta kursi</b>\n\n"
+        f"1 $ = <b>{reports.fmt_money(rate)}</b>\n"
+        f"<i>Manba: {manba}</i>\n\n"
+        f"Dollarda yozgan yozuvlaringiz shu kurs bilan umumiy hisobga "
+        f"qo'shiladi. Har bir yozuv o'z kunidagi kursni saqlab qoladi — "
+        f"kurs o'zgarsa ham eski hisobot o'zgarmaydi.\n\n"
+        f"O'zgartirish: <code>/kurs 12800</code>",
+        parse_mode=ParseMode.HTML)
+
+
+async def job_refresh_rates(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Har kuni ertalab kursni yangilaydi — kun davomida tarmoqqa
+    chiqmasdan ishlash uchun."""
+    try:
+        result = await asyncio.to_thread(rates.refresh)
+        log.info("Kurslar yangilandi: %s", result)
+    except Exception:
+        log.warning("Kursni yangilab bo'lmadi", exc_info=True)
 
 
 async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2024,6 +2073,13 @@ def schedule_jobs(app: Application) -> None:
                   job_kwargs={"trigger": "cron", "hour": 10, "minute": 0,
                               "timezone": config.TZ},
                   name="muddat-ogohlantirishi")
+    # Kursni ertalab yangilaymiz — kun davomida yozuvlar tarmoqqa
+    # chiqmasdan, bazadagi kurs bilan hisoblanadi.
+    jq.run_custom(job_refresh_rates,
+                  job_kwargs={"trigger": "cron", "hour": 8, "minute": 5,
+                              "timezone": config.TZ},
+                  name="kurs-yangilash")
+    jq.run_once(job_refresh_rates, when=5, name="kurs-boshlangich")
     log.info("Rejalashtirilgan vazifalar yoqildi: eslatma (har soat), "
              "muddat ogohlantirishi (10:00)")
 
@@ -2051,6 +2107,7 @@ BOT_COMMANDS = [
     ("holat", "Obuna holati va bugungi limitlar"),
     ("byudjet", "Oylik byudjet qo'yish"),
     ("eslatma", "Kunlik eslatmani sozlash"),
+    ("kurs", "Dollar kursi"),
     ("taklif", "Do'st taklif qilib bepul kun olish"),
     ("til", "Til / Язык"),
     ("maxfiylik", "Maxfiylik siyosati"),
@@ -2170,6 +2227,7 @@ def main() -> None:
     app.add_handler(CommandHandler(["taklif", "referal"], cmd_referral))
     app.add_handler(CommandHandler(["byudjet", "budjet"], cmd_budget))
     app.add_handler(CommandHandler("eslatma", cmd_reminder))
+    app.add_handler(CommandHandler(["kurs", "valyuta"], cmd_rate))
     app.add_handler(CommandHandler("bugun", _period_command("bugun")))
     app.add_handler(CommandHandler("kecha", _period_command("kecha")))
     app.add_handler(CommandHandler("hafta", _period_command("hafta")))

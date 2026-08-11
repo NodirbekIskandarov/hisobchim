@@ -243,20 +243,15 @@ def api_summary(
     ref_date = _parse_date(ref, reports.today())
     start, end, label = _compute_range(period, ref_date)
 
-    by_cur = db.totals_by_currency(user["user_id"], start, end)
-    currencies = sorted(by_cur.keys(), key=lambda c: c != "som")
+    uid = user["user_id"]
 
-    result = {}
-    for cur in currencies:
-        t = by_cur[cur]
-        chiqim_cats = db.by_category(user["user_id"], start, end, config.KIND_CHIQIM, cur)
-        kirim_cats = db.by_category(user["user_id"], start, end, config.KIND_KIRIM, cur)
-        result[cur] = {
-            "kirim": t[config.KIND_KIRIM],
-            "chiqim": t[config.KIND_CHIQIM],
-            "farq": t[config.KIND_KIRIM] - t[config.KIND_CHIQIM],
-            "qarz_berdim": t[config.KIND_QARZ_BERDIM],
-            "qarz_oldim": t[config.KIND_QARZ_OLDIM],
+    def block(kirim_cats, chiqim_cats, totals):
+        return {
+            "kirim": totals[config.KIND_KIRIM],
+            "chiqim": totals[config.KIND_CHIQIM],
+            "farq": totals[config.KIND_KIRIM] - totals[config.KIND_CHIQIM],
+            "qarz_berdim": totals[config.KIND_QARZ_BERDIM],
+            "qarz_oldim": totals[config.KIND_QARZ_OLDIM],
             "chiqim_kategoriyalari": [
                 {"kategoriya": c, "summa": s, "soni": n} for c, s, n in chiqim_cats
             ],
@@ -265,13 +260,38 @@ def api_summary(
             ],
         }
 
+    # «hammasi» — barcha valyuta asosiy valyutada birlashtirilgan. Foydalanuvchi
+    # hamyoni bitta, shuning uchun standart ko'rinish shu.
+    unified = db.totals_unified(uid, start, end)
+    result = {
+        "hammasi": block(
+            db.by_category_unified(uid, start, end, config.KIND_KIRIM),
+            db.by_category_unified(uid, start, end, config.KIND_CHIQIM),
+            unified["totals"],
+        )
+    }
+    result["hammasi"]["foreign"] = unified["foreign"]
+
+    # Har bir valyuta alohida ham qoladi — kimdir faqat dollarli
+    # yozuvlarini ko'rmoqchi bo'lsa.
+    by_cur = db.totals_by_currency(uid, start, end)
+    currencies = sorted(by_cur.keys(), key=lambda c: c != "som")
+    for cur in currencies:
+        result[cur] = block(
+            db.by_category(uid, start, end, config.KIND_KIRIM, cur),
+            db.by_category(uid, start, end, config.KIND_CHIQIM, cur),
+            by_cur[cur],
+        )
+
     return {
         "period": period,
         "ref": ref_date.isoformat(),
         "start": start.isoformat(),
         "end": end.isoformat(),
         "label": label,
-        "currencies": currencies,
+        # Birinchisi standart tanlov bo'ladi.
+        "currencies": (["hammasi"] + currencies) if len(currencies) > 1 else currencies,
+        "base_currency": config.CURRENCY,
         "by_currency": result,
     }
 
