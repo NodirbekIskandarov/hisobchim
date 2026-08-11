@@ -42,6 +42,37 @@ CHAT_MODEL = os.getenv("CHAT_MODEL", "claude-sonnet-5").strip()
 # Chek rasmlarini o'qish uchun — eng aniq model. Arzonroq variant: claude-sonnet-5.
 VISION_MODEL = os.getenv("VISION_MODEL", "claude-opus-5").strip()
 
+# Model narxlari ($ / 1M token): (kirish, chiqish). Keshdan o'qish kirish
+# narxining ~0.1 barobari, keshga yozish ~1.25 barobari (5 daqiqalik TTL).
+# Narxlar o'zgarsa shu yerdan yangilanadi — hisob-kitob avtomatik moslashadi.
+MODEL_PRICES = {
+    "claude-haiku-4-5-20251001": (1.00, 5.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-sonnet-5": (3.00, 15.00),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-opus-4-8": (5.00, 25.00),
+}
+CACHE_READ_MULTIPLIER = 0.10
+CACHE_WRITE_MULTIPLIER = 1.25
+
+
+def cost_usd(model: str, input_tokens: int, output_tokens: int,
+             cache_read: int = 0, cache_write: int = 0) -> float:
+    """Bitta API chaqiruvining narxi. Noma'lum model uchun 0 qaytaradi —
+    hisob past ko'rsatilishi jimgina xato ko'rsatishdan yaxshiroq emas,
+    shuning uchun noma'lum model loglarda ko'rinadi."""
+    price = MODEL_PRICES.get(model)
+    if not price:
+        return 0.0
+    pin, pout = price
+    return (
+        input_tokens / 1e6 * pin
+        + output_tokens / 1e6 * pout
+        + cache_read / 1e6 * pin * CACHE_READ_MULTIPLIER
+        + cache_write / 1e6 * pin * CACHE_WRITE_MULTIPLIER
+    )
+
+
 DB_PATH = os.getenv("DB_PATH", "hisobchi.db")
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
@@ -59,14 +90,46 @@ def normalize_currency(value: str | None) -> str:
     v = (value or "").strip().lower()
     return v if v in SUPPORTED_CURRENCIES else CURRENCY_SOM
 
-# Faqat shu Telegram ID'lariga javob beradi. Bo'sh bo'lsa bot hech kimni kiritmaydi.
+# --------------------------------------------------------------------------- #
+# Kirish huquqi
+# --------------------------------------------------------------------------- #
+
+# Bot egalari — obunasiz, limitsiz, cheksiz foydalanadi va admin buyruqlariga
+# ega. Bo'sh bo'lsa hech kim admin emas.
+OWNER_IDS = _ids("OWNER_IDS")
+
+# Eskirgan: yopiq rejim uchun oq ro'yxat. Bo'sh bo'lsa bot HAMMAGA ochiq
+# (obuna/sinov muddati bo'yicha tekshiriladi). To'ldirilgan bo'lsa faqat shu
+# ID'lar kiradi — yopiq sinovdan o'tkazish uchun qulay.
 ALLOWED_USER_IDS = _ids("ALLOWED_USER_IDS")
+
+# Yangi foydalanuvchi uchun bepul sinov muddati (kun).
+TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
+
+# Obuna bo'lish uchun murojaat manzili (masalan @username).
+SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
+
+# --------------------------------------------------------------------------- #
+# Kunlik limitlar — suiiste'moldan himoya. Egalarga qo'llanmaydi.
+# Bitta foydalanuvchi cheksiz so'rov yuborib katta xarajat keltirmasligi uchun.
+# --------------------------------------------------------------------------- #
+LIMIT_TEXT_PER_DAY = int(os.getenv("LIMIT_TEXT_PER_DAY", "120"))
+LIMIT_RECEIPT_PER_DAY = int(os.getenv("LIMIT_RECEIPT_PER_DAY", "25"))
+LIMIT_QA_PER_DAY = int(os.getenv("LIMIT_QA_PER_DAY", "30"))
+
+# Bir vaqtda qayta ishlanadigan yangilanishlar soni. AI chaqiruvi sekin
+# bo'lgani uchun foydalanuvchilar bir-birini kutmasligi kerak.
+MAX_CONCURRENT_UPDATES = int(os.getenv("MAX_CONCURRENT_UPDATES", "64"))
 
 # "obedga 50" -> 50 000 so'm deb tushunilsinmi?
 SMALL_NUMBERS_ARE_THOUSANDS = _bool("SMALL_NUMBERS_ARE_THOUSANDS", True)
 
-# Savolga javob berishda AI'ga beriladigan maksimal yozuvlar soni.
-QA_MAX_ROWS = int(os.getenv("QA_MAX_ROWS", "500"))
+# Savolga javob berishda AI'ga beriladigan maksimal XOM yozuvlar soni.
+# 500 da bitta savol ~42 000 token = ~$0.14 turardi. Jamlanmalar (kategoriya,
+# kun va tur bo'yicha jamilar) baribir Python'da aniq hisoblanib alohida
+# yuboriladi, shuning uchun modelga barcha xom yozuvlar kerak emas —
+# 150 da narx ~$0.05 ga tushadi, javob sifati esa saqlanadi.
+QA_MAX_ROWS = int(os.getenv("QA_MAX_ROWS", "150"))
 
 # Bitta chek uchun maksimal rasm (uzun chekni bo'lib suratga olish uchun).
 MAX_RECEIPT_PARTS = int(os.getenv("MAX_RECEIPT_PARTS", "8"))

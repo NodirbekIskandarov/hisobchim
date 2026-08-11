@@ -84,10 +84,21 @@ def _validate_init_data(init_data: str) -> dict:
     if not isinstance(user_id, int):
         raise HTTPException(401, "foydalanuvchi ID topilmadi")
 
-    if user_id not in config.ALLOWED_USER_IDS:
-        raise HTTPException(403, "Bu shaxsiy panel — sizga ruxsat yo'q")
+    # Kirish huquqi bot bilan BIR XIL qoidada tekshiriladi: ega — cheksiz,
+    # boshqalar — bepul sinov yoki amaldagi obuna.
+    access = db.access_status(user_id, user.get("first_name", ""), user.get("username"))
+    if not access["ok"]:
+        detail = {
+            "blocked": "Hisobingiz bloklangan.",
+            "not_allowed": "Bot hozircha yopiq sinovda.",
+        }.get(access["status"], "Bepul muddat tugadi — obuna kerak.")
+        raise HTTPException(403, detail)
 
-    return {"user_id": user_id, "first_name": user.get("first_name", "")}
+    return {
+        "user_id": user_id,
+        "first_name": user.get("first_name", ""),
+        "access": access,
+    }
 
 
 def current_user(x_telegram_init_data: str = Header(default="")) -> dict:
@@ -151,9 +162,16 @@ def _parse_date(raw: str | None, default: date) -> date:
 
 @app.get("/api/me")
 def api_me(user: dict = Depends(current_user)):
+    access = user.get("access") or {}
+    until = access.get("until")
     return {
         "user_id": user["user_id"],
         "first_name": user["first_name"],
+        "subscription": {
+            "status": access.get("status", "trial"),
+            "days_left": access.get("days_left"),
+            "until": until.isoformat() if until else None,
+        },
         "currency": config.CURRENCY,
         "categories": config.ALL_CATEGORIES,
         "category_icons": config.CATEGORY_ICONS,

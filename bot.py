@@ -10,6 +10,7 @@ import base64
 import csv
 import io
 import logging
+import time
 import uuid
 from functools import wraps
 
@@ -220,22 +221,95 @@ guruhlangan bo'ladi."""
 # Ruxsat
 # --------------------------------------------------------------------------- #
 
+SUBSCRIBE_TEXT = (
+    "⏳ <b>Bepul muddat tugadi</b>\n\n"
+    "Botdan foydalanishni davom ettirish uchun obuna kerak.\n"
+    "Obuna bo'lish uchun <b>{contact}</b> ga yozing.\n\n"
+    "<i>Ma'lumotlaringiz saqlanib turibdi — obunadan keyin hammasi joyida bo'ladi.</i>"
+)
+
+
+def _support_contact() -> str:
+    return config.SUPPORT_CONTACT or "administrator"
+
+
 def private_only(func):
+    """Kirish nazorati: ega — cheksiz; boshqalar — bepul sinov yoki obuna."""
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
         if user is None:
             return
-        if user.id not in config.ALLOWED_USER_IDS:
-            log.warning("Ruxsatsiz urinish: id=%s username=%s", user.id, user.username)
-            if update.effective_message:
-                await update.effective_message.reply_text(
-                    f"Bu shaxsiy bot.\nSizning ID: {user.id}"
-                )
+        access = db.access_status(user.id, user.first_name or "", user.username)
+        context.user_data["access"] = access
+
+        if access["ok"]:
+            return await func(update, context)
+
+        msg = update.effective_message
+        if msg is None:
+            return
+        if access["status"] == "blocked":
+            await msg.reply_text("🚫 Hisobingiz bloklangan.")
+        elif access["status"] == "not_allowed":
+            log.info("Yopiq rejim: id=%s username=%s", user.id, user.username)
+            await msg.reply_text(
+                f"Bot hozircha yopiq sinovda.\nSizning ID: {user.id}"
+            )
+        else:  # expired
+            await msg.reply_text(
+                SUBSCRIBE_TEXT.format(contact=reports.esc(_support_contact())),
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    return wrapper
+
+
+def owner_only(func):
+    """Faqat bot egalari uchun (admin buyruqlari)."""
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user = update.effective_user
+        if user is None or user.id not in config.OWNER_IDS:
             return
         return await func(update, context)
 
     return wrapper
+
+
+# --------------------------------------------------------------------------- #
+# Kunlik limitlar — bitta foydalanuvchi cheksiz xarajat keltirmasligi uchun.
+# Egalarga qo'llanmaydi.
+# --------------------------------------------------------------------------- #
+
+LIMITS = {
+    "matn": (config.LIMIT_TEXT_PER_DAY, "matnli yozuv"),
+    "chek": (config.LIMIT_RECEIPT_PER_DAY, "chek"),
+    "savol": (config.LIMIT_QA_PER_DAY, "savol"),
+}
+
+
+async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                      operation: str) -> int | None:
+    """Limitni tekshiradi va joy band qiladi.
+
+    Qaytaradi: usage_log qatorining id'si (amal tugagach yozish uchun),
+    yoki limit tugagan bo'lsa None."""
+    user_id = update.effective_user.id
+    if user_id in config.OWNER_IDS:
+        return db.usage_begin(user_id, operation)
+
+    limit, label = LIMITS[operation]
+    used = db.count_today(user_id, operation)
+    if used >= limit:
+        await update.effective_message.reply_text(
+            f"⏳ Bugungi <b>{label}</b> limiti tugadi ({limit} ta).\n"
+            "Ertaga yarim tundan keyin yangilanadi.",
+            parse_mode=ParseMode.HTML,
+        )
+        return None
+    return db.usage_begin(user_id, operation)
 
 
 # --------------------------------------------------------------------------- #
@@ -340,8 +414,21 @@ def _help_text() -> str:
 
 @private_only
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    access = context.user_data.get("access") or {}
+    text = _help_text()
+
+    # Yangi foydalanuvchiga sinov muddatini darrov aytamiz — kutilmagan
+    # "muddat tugadi" xabari bilan to'qnashmasin.
+    if access.get("status") == "trial":
+        text += (
+            f"\n\n🎁 <b>Bepul sinov: {access['days_left']} kun qoldi.</b>\n"
+            "Holatni ko'rish: /holat"
+        )
+    elif access.get("status") == "subscribed":
+        text += f"\n\n✅ <b>Obuna faol</b> — {access['days_left']} kun qoldi."
+
     await update.effective_message.reply_text(
-        _help_text(), parse_mode=ParseMode.HTML, reply_markup=main_menu()
+        text, parse_mode=ParseMode.HTML, reply_markup=main_menu()
     )
 
 
@@ -440,12 +527,67 @@ async def cmd_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Chek: rasm yuklash va tahlil
 # --------------------------------------------------------------------------- #
 
+class TTLStore:
+    """Muddati bilan o'zini tozalaydigan lug'at.
+
+    Chek rasmlari base64 ko'rinishida xotirada turadi (bittasi bir necha MB).
+    Oddiy dict bilan 1000 foydalanuvchida bu gigabaytlarga o'sib, serverni
+    xotirasiz qoldirardi. Bu yerda har bir yozuv muddati o'tgach o'chiriladi
+    va umumiy soni ham cheklangan."""
+
+    def __init__(self, ttl_seconds: int, max_items: int):
+        self._data: dict = {}
+        self._ttl = ttl_seconds
+        self._max = max_items
+
+    def _purge(self) -> None:
+        now = time.monotonic()
+        for key in [k for k, (exp, _) in self._data.items() if exp < now]:
+            self._data.pop(key, None)
+        # Chegaradan oshsa — eng eskisidan boshlab chiqaramiz.
+        while len(self._data) > self._max:
+            oldest = min(self._data, key=lambda k: self._data[k][0])
+            self._data.pop(oldest, None)
+
+    def get(self, key, default=None):
+        self._purge()
+        item = self._data.get(key)
+        if item is None:
+            return default
+        # Foydalanilgan yozuvning muddati yangilanadi.
+        self._data[key] = (time.monotonic() + self._ttl, item[1])
+        return item[1]
+
+    def set(self, key, value) -> None:
+        self._data[key] = (time.monotonic() + self._ttl, value)
+        self._purge()
+
+    def setdefault(self, key, default):
+        existing = self.get(key)
+        if existing is not None:
+            return existing
+        self.set(key, default)
+        return default
+
+    def pop(self, key, default=None):
+        item = self._data.pop(key, None)
+        return default if item is None else item[1]
+
+    def __contains__(self, key) -> bool:
+        return self.get(key) is not None
+
+    def __len__(self) -> int:
+        self._purge()
+        return len(self._data)
+
+
 # Albom bo'lib kelayotgan rasmlar: media_group_id -> {"images", "caption", "task"}
-_albums: dict[str, dict] = {}
+_albums = TTLStore(ttl_seconds=300, max_items=200)
 # «Uzun chek» rejimi: user_id -> {"images": [...], "caption": str}
-_collect: dict[int, dict] = {}
+_collect = TTLStore(ttl_seconds=1800, max_items=200)
 # Oxirgi chek — «davomi bor» tugmasi uchun: user_id -> {"receipt_id", "images", "caption"}
-_last_receipt: dict[int, dict] = {}
+# Qisqa muddat: bu faqat "davomi bor" tugmasi uchun kerak, uzoq saqlash shart emas.
+_last_receipt = TTLStore(ttl_seconds=900, max_items=100)
 
 
 class ImageError(Exception):
@@ -510,6 +652,10 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
         )
         return
 
+    usage_id = await check_quota(update, context, "chek")
+    if usage_id is None:
+        return
+
     qism = f" ({len(images)} ta qism)" if len(images) > 1 else ""
     status = await message.reply_text(f"🔍 Chek o'qilmoqda{qism}…")
     await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
@@ -518,10 +664,13 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
         data = await ai.parse_receipt(images, today=reports.today(), caption=caption)
     except Exception:
         log.exception("Chekni o'qishda xatolik")
+        db.usage_cancel(usage_id)
         await status.edit_text(
             "⚠️ Chekni o'qishda xatolik yuz berdi. Birozdan keyin urinib ko'ring."
         )
         return
+
+    db.usage_finish(usage_id, data.get("_usage"))
 
     if not data["oqildi"]:
         hint = data["izoh_matni"] or (
@@ -551,11 +700,11 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
     start, end, _ = reports.period_range("bugun")
     day_total = db.totals(user_id, start, end)[config.KIND_CHIQIM]
 
-    _last_receipt[user_id] = {
+    _last_receipt.set(user_id, {
         "receipt_id": receipt_id,
         "images": images,
         "caption": caption,
-    }
+    })
 
     await status.edit_text(
         reports.receipt_text(data, day_total),
@@ -594,7 +743,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 1) «Uzun chek» rejimi — qismlarni yig'amiz.
     if user_id in _collect:
-        bucket = _collect[user_id]
+        bucket = _collect.get(user_id)
         bucket["images"].append(image)
         if caption and not bucket["caption"]:
             bucket["caption"] = caption
@@ -623,7 +772,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @private_only
 async def cmd_collect_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _collect[update.effective_user.id] = {"images": [], "caption": ""}
+    _collect.set(update.effective_user.id, {"images": [], "caption": ""})
     await update.effective_message.reply_text(
         "🧾 <b>Uzun chek rejimi</b>\n\n"
         "Chekni qismlarga bo'lib suratga oling va ketma-ket yuboring "
@@ -691,11 +840,15 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # «Uzun chek» rejimida yozilgan matn — chek uchun izoh.
     if user_id in _collect:
-        _collect[user_id]["caption"] = text
+        _collect.get(user_id)["caption"] = text
         await message.reply_text(
             "📝 Izoh saqlandi. Chek qismlarini yuborishda davom eting.",
             reply_markup=COLLECT_MENU,
         )
+        return
+
+    usage_id = await check_quota(update, context, "matn")
+    if usage_id is None:
         return
 
     await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
@@ -704,19 +857,30 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parsed = await ai.parse_message(text, today=reports.today())
     except Exception:
         log.exception("AI tahlilida xatolik")
+        db.usage_cancel(usage_id)
         await message.reply_text("⚠️ AI bilan bog'lanishda xatolik. Birozdan keyin urinib ko'ring.")
         return
 
+    db.usage_finish(usage_id, parsed.get("_usage"))
     niyat = parsed["niyat"]
 
     if niyat == "savol":
+        # Savol alohida (qimmatroq) amal — o'z limiti va o'z hisobi bor.
+        qa_id = await check_quota(update, context, "savol")
+        if qa_id is None:
+            return
         try:
             rows = db.rows_for_ai(user_id, config.QA_MAX_ROWS)
-            answer = await ai.answer_question(text, rows, today=reports.today())
+            answer, qa_usage = await ai.answer_question(text, rows, today=reports.today())
         except Exception:
             log.exception("AI javobida xatolik")
+            db.usage_cancel(qa_id)
             await message.reply_text("⚠️ Javob tayyorlashda xatolik yuz berdi.")
             return
+        if qa_usage:
+            db.usage_finish(qa_id, qa_usage)
+        else:
+            db.usage_cancel(qa_id)  # yozuv yo'q edi, API chaqirilmadi
         await message.reply_text(answer)
         return
 
@@ -835,7 +999,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         # Eski yozuvlar olib tashlanadi — chek to'liq holda qayta o'qiladi.
         db.delete_receipt(user_id, receipt_id)
-        _collect[user_id] = {"images": list(last["images"]), "caption": last["caption"]}
+        _collect.set(user_id, {"images": list(last["images"]), "caption": last["caption"]})
         await query.answer()
         await query.edit_message_text(
             f"➕ Chekning qolgan qismlarini yuboring "
@@ -914,6 +1078,148 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
 
+# --------------------------------------------------------------------------- #
+# Obuna holati (hamma uchun) va admin buyruqlari (faqat ega uchun)
+# --------------------------------------------------------------------------- #
+
+def _fmt_dt(dt) -> str:
+    return dt.strftime("%d.%m.%Y") if dt else "—"
+
+
+@private_only
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    access = context.user_data.get("access") or db.access_status(user_id)
+
+    if access["status"] == "owner":
+        head = "👑 <b>Bot egasi</b> — cheksiz foydalanish"
+    elif access["status"] == "subscribed":
+        head = (f"✅ <b>Obuna faol</b>\n"
+                f"Tugash sanasi: {_fmt_dt(access['until'])} "
+                f"({access['days_left']} kun qoldi)")
+    else:
+        head = (f"🎁 <b>Bepul sinov</b>\n"
+                f"Tugash sanasi: {_fmt_dt(access['until'])} "
+                f"({access['days_left']} kun qoldi)")
+
+    lines = [head, ""]
+
+    if access["status"] != "owner":
+        lines.append("<b>Bugungi limitlar:</b>")
+        for op, (limit, label) in LIMITS.items():
+            used = db.count_today(user_id, op)
+            lines.append(f"  {label}: {used} / {limit}")
+        lines.append("")
+
+    n = len(db.all_rows(user_id))
+    lines.append(f"📒 Bazangizda {n} ta yozuv bor.")
+
+    await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+@owner_only
+async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users = db.user_count()
+    u30 = db.usage_summary(days=30)
+    u1 = db.usage_summary(days=1)
+
+    lines = [
+        "🛠 <b>Admin paneli</b>", "",
+        "<b>Foydalanuvchilar</b>",
+        f"  Jami: {users['total']}",
+        f"  Obunali: {users['subscribed']}",
+        f"  Sinovda: {users['trial']}",
+        f"  Bloklangan: {users['blocked']}",
+        "",
+        "<b>Xarajat (30 kun)</b>",
+        f"  Chaqiruvlar: {u30['calls']}",
+        f"  Narx: ${u30['cost_usd']:.2f}",
+        f"  Keshdan o'qilgan: {u30['cache_read']:,} token".replace(",", " "),
+    ]
+    for op in u30["by_operation"]:
+        lines.append(f"    {op['operation']}: {op['calls']} ta · ${op['cost_usd']:.2f}")
+    lines += ["", f"<b>Bugun:</b> {u1['calls']} chaqiruv · ${u1['cost_usd']:.2f}"]
+
+    top = db.top_spenders(days=30, limit=5)
+    if top:
+        lines += ["", "<b>Eng ko'p sarflaganlar (30 kun)</b>"]
+        for t in top:
+            who = reports.esc(t["first_name"] or str(t["user_id"]))
+            uname = f" @{reports.esc(t['username'])}" if t["username"] else ""
+            lines.append(f"  {who}{uname} — ${t['cost_usd']:.3f} ({t['calls']} ta)")
+
+    lines += [
+        "", "<b>Buyruqlar</b>",
+        "<code>/berish 123456 30</code> — 30 kunlik obuna berish",
+        "<code>/bloklash 123456</code> · <code>/ochish 123456</code>",
+        "<code>/royxat</code> — oxirgi foydalanuvchilar",
+    ]
+    await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+@owner_only
+async def cmd_grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if len(args) < 2 or not args[0].isdigit() or not args[1].isdigit():
+        await update.effective_message.reply_text("Foydalanish: /berish <user_id> <kun>")
+        return
+    target, days = int(args[0]), int(args[1])
+    until = db.grant_subscription(target, days)
+    await update.effective_message.reply_text(
+        f"✅ {target} uchun obuna {_fmt_dt(until)} gacha uzaytirildi."
+    )
+    try:
+        await context.bot.send_message(
+            target,
+            f"🎉 Obunangiz faollashtirildi!\nAmal qilish muddati: {_fmt_dt(until)}",
+        )
+    except Exception:
+        log.info("Obuna xabarini yuborib bo'lmadi: %s", target)
+
+
+@owner_only
+async def cmd_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args or not args[0].isdigit():
+        await update.effective_message.reply_text("Foydalanish: /bloklash <user_id>")
+        return
+    ok = db.set_blocked(int(args[0]), True)
+    await update.effective_message.reply_text(
+        f"🚫 {args[0]} bloklandi." if ok else "Foydalanuvchi topilmadi."
+    )
+
+
+@owner_only
+async def cmd_unblock(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    if not args or not args[0].isdigit():
+        await update.effective_message.reply_text("Foydalanish: /ochish <user_id>")
+        return
+    ok = db.set_blocked(int(args[0]), False)
+    await update.effective_message.reply_text(
+        f"✅ {args[0]} blokdan chiqarildi." if ok else "Foydalanuvchi topilmadi."
+    )
+
+
+@owner_only
+async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = db.list_users(30)
+    if not rows:
+        await update.effective_message.reply_text("Hozircha foydalanuvchi yo'q.")
+        return
+    lines = [f"👥 <b>Oxirgi {len(rows)} foydalanuvchi</b>", ""]
+    for r in rows:
+        st = db.access_status(r["user_id"])
+        badge = {"owner": "👑", "subscribed": "✅", "trial": "🎁",
+                 "expired": "⏳", "blocked": "🚫"}.get(st["status"], "•")
+        uname = f" @{reports.esc(r['username'])}" if r["username"] else ""
+        lines.append(
+            f"{badge} <code>{r['user_id']}</code> {reports.esc(r['first_name'])}{uname}"
+        )
+    for chunk in _split_message("\n".join(lines)):
+        await update.effective_message.reply_text(chunk, parse_mode=ParseMode.HTML)
+
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Handler xatoligi", exc_info=context.error)
 
@@ -937,6 +1243,7 @@ BOT_COMMANDS = [
     ("ochir", "Yozuvni o'chirish: /ochir 12"),
     ("yopdim", "Qarzni yopish: /yopdim 12"),
     ("csv", "Barcha yozuvlarni fayl qilib olish"),
+    ("holat", "Obuna holati va bugungi limitlar"),
     ("id", "Telegram ID'ingiz"),
 ]
 
@@ -966,10 +1273,20 @@ def main() -> None:
         raise SystemExit(
             ".env faylida quyidagilar yo'q: " + ", ".join(missing)
         )
-    if not config.ALLOWED_USER_IDS:
+    if not config.OWNER_IDS:
         log.warning(
-            "ALLOWED_USER_IDS bo'sh — bot hech kimni kiritmaydi. "
-            "Botga /id yozib, ID'ingizni .env ga qo'shing."
+            "OWNER_IDS bo'sh — admin buyruqlari hech kimga ishlamaydi. "
+            "Botga /id yozib, ID'ingizni .env dagi OWNER_IDS ga qo'shing."
+        )
+    if config.ALLOWED_USER_IDS:
+        log.info(
+            "YOPIQ rejim: faqat %d ta ID kiritiladi. Hammaga ochish uchun "
+            ".env dagi ALLOWED_USER_IDS ni bo'shating.", len(config.ALLOWED_USER_IDS)
+        )
+    else:
+        log.info(
+            "OCHIQ rejim: yangi foydalanuvchilar %d kunlik bepul sinov oladi.",
+            config.TRIAL_DAYS,
         )
 
     db.init()
@@ -978,12 +1295,24 @@ def main() -> None:
         Application.builder()
         .token(config.TELEGRAM_TOKEN)
         .post_init(_post_init)
+        # MUHIM (1000 foydalanuvchi uchun): standart holatda python-telegram-bot
+        # yangilanishlarni BIRIN-KETIN qayta ishlaydi. AI chaqiruvi 2–16 soniya
+        # davom etgani uchun bitta sekin chek butun navbatni to'xtatib qo'yardi.
+        # concurrent_updates bilan foydalanuvchilar bir-birini kutmaydi.
+        .concurrent_updates(config.MAX_CONCURRENT_UPDATES)
         .build()
     )
 
     app.add_handler(CommandHandler(["start", "yordam", "help"], cmd_start))
     app.add_handler(CommandHandler(["qollanma", "guide"], cmd_guide))
+    app.add_handler(CommandHandler("holat", cmd_status))
     app.add_handler(CommandHandler("id", cmd_id))
+    # Admin buyruqlari — owner_only dekoratori boshqalarga jimgina javob bermaydi.
+    app.add_handler(CommandHandler("admin", cmd_admin))
+    app.add_handler(CommandHandler("berish", cmd_grant))
+    app.add_handler(CommandHandler("bloklash", cmd_block))
+    app.add_handler(CommandHandler("ochish", cmd_unblock))
+    app.add_handler(CommandHandler("royxat", cmd_users))
     app.add_handler(CommandHandler("bugun", _period_command("bugun")))
     app.add_handler(CommandHandler("kecha", _period_command("kecha")))
     app.add_handler(CommandHandler("hafta", _period_command("hafta")))

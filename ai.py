@@ -20,8 +20,45 @@ _client: AsyncAnthropic | None = None
 def client() -> AsyncAnthropic:
     global _client
     if _client is None:
-        _client = AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
+        # max_retries: 429/5xx da SDK o'zi kutib qayta uradi — 1000 foydalanuvchida
+        # tezlik chegarasiga urilish ehtimoli bor, shuning uchun standart 2 dan ko'proq.
+        _client = AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=4)
     return _client
+
+
+# --------------------------------------------------------------------------- #
+# Token sarfini o'lchash — har bir chaqiruv narxi foydalanuvchi bo'yicha
+# yoziladi, shuning uchun har bir javobdan haqiqiy usage olinadi (taxmin emas).
+# --------------------------------------------------------------------------- #
+
+def _usage_of(resp, model: str) -> dict[str, Any]:
+    u = getattr(resp, "usage", None)
+    inp = int(getattr(u, "input_tokens", 0) or 0)
+    out = int(getattr(u, "output_tokens", 0) or 0)
+    cread = int(getattr(u, "cache_read_input_tokens", 0) or 0)
+    cwrite = int(getattr(u, "cache_creation_input_tokens", 0) or 0)
+    return {
+        "model": model,
+        "input_tokens": inp,
+        "output_tokens": out,
+        "cache_read": cread,
+        "cache_write": cwrite,
+        "cost_usd": config.cost_usd(model, inp, out, cread, cwrite),
+    }
+
+
+def _merge_usage(*items: dict[str, Any] | None) -> dict[str, Any]:
+    """Bir amal bir nechta API chaqiruvidan iborat bo'lsa (masalan chek qayta
+    o'qilsa) — sarfni qo'shib yig'adi."""
+    total = {"model": "", "input_tokens": 0, "output_tokens": 0,
+             "cache_read": 0, "cache_write": 0, "cost_usd": 0.0}
+    for it in items:
+        if not it:
+            continue
+        total["model"] = it["model"] or total["model"]
+        for k in ("input_tokens", "output_tokens", "cache_read", "cache_write", "cost_usd"):
+            total[k] += it[k]
+    return total
 
 
 # --------------------------------------------------------------------------- #
@@ -219,9 +256,11 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
             payload = block.input
             break
 
+    usage = _usage_of(resp, config.PARSE_MODEL)
+
     if not payload:
         log.warning("Model asbobni chaqirmadi: %s", resp.content)
-        return {"niyat": "tushunarsiz", "yozuvlar": [], "izoh_matni": ""}
+        return {"niyat": "tushunarsiz", "yozuvlar": [], "izoh_matni": "", "_usage": usage}
 
     niyat = payload.get("niyat", "tushunarsiz")
     cleaned: list[dict[str, Any]] = []
@@ -263,6 +302,7 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
         "niyat": niyat,
         "yozuvlar": cleaned,
         "izoh_matni": (payload.get("izoh_matni") or "").strip(),
+        "_usage": usage,
     }
 
 
@@ -453,11 +493,21 @@ async def _receipt_call(
     caption: str,
     note: str = "",
     force: bool = False,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     kwargs: dict[str, Any] = {
         "model": config.VISION_MODEL,
         "max_tokens": 16000,
-        "system": _receipt_system_prompt(today, len(images)),
+        # Tizim promptи va asbob sxemasi har bir chekda AYNAN bir xil —
+        # keshlash belgisi qo'yilsa keyingi cheklarda shu qism kirish
+        # narxining ~10% iga tushadi. Render tartibi tools -> system, shuning
+        # uchun oxirgi system blokidagi belgi ikkalasini birga keshlaydi.
+        "system": [
+            {
+                "type": "text",
+                "text": _receipt_system_prompt(today, len(images)),
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
         "tools": [RECEIPT_TOOL],
         "output_config": {"effort": "high"},
         "messages": [
@@ -473,10 +523,11 @@ async def _receipt_call(
         kwargs["thinking"] = {"type": "adaptive"}
 
     resp = await client().messages.create(**kwargs)
+    usage = _usage_of(resp, config.VISION_MODEL)
     for block in resp.content:
         if block.type == "tool_use" and block.name == "chekni_qaytar":
-            return block.input
-    return None
+            return block.input, usage
+    return None, usage
 
 
 def _normalize_receipt(payload: dict[str, Any], today: date) -> dict[str, Any]:
@@ -558,11 +609,12 @@ async def parse_receipt(
     """
     today = today or date.today()
 
-    payload = await _receipt_call(images, today, caption)
+    payload, usage = await _receipt_call(images, today, caption)
     if payload is None:
         # Model asbobni chaqirmadi — majburiy rejimda qayta urinamiz.
         log.warning("Chek: model asbobni chaqirmadi, majburiy rejimga o'tildi")
-        payload = await _receipt_call(images, today, caption, force=True)
+        payload, usage2 = await _receipt_call(images, today, caption, force=True)
+        usage = _merge_usage(usage, usage2)
 
     if payload is None:
         return {
@@ -571,6 +623,7 @@ async def parse_receipt(
             "izoh_matni": "Chekni o'qib bo'lmadi. Yorug'roq va aniqroq surat yuboring.",
             "tekshiruv": {"holat": "jami_yoq", "hisoblangan": 0.0,
                           "chekdagi": None, "farq": None},
+            "_usage": usage,
         }
 
     data = _normalize_receipt(payload, today)
@@ -598,7 +651,8 @@ async def parse_receipt(
             + "Rasmni QAYTADAN, qator-baqator diqqat bilan o'qi va to'g'rilangan "
             "to'liq ro'yxatni qaytar. Har bir raqamni chekdagi bilan solishtir."
         )
-        retry = await _receipt_call(images, today, caption, note=note)
+        retry, usage_retry = await _receipt_call(images, today, caption, note=note)
+        usage = _merge_usage(usage, usage_retry)
         if retry is not None:
             data2 = _normalize_receipt(retry, today)
             check2 = receipt_check(data2)
@@ -614,6 +668,7 @@ async def parse_receipt(
                 data, check = data2, check2
 
     data["tekshiruv"] = check
+    data["_usage"] = usage
     return data
 
 
@@ -701,10 +756,13 @@ def _aggregate(rows) -> dict[str, Any]:
     }
 
 
-async def answer_question(question: str, rows, today: date | None = None) -> str:
+async def answer_question(
+    question: str, rows, today: date | None = None
+) -> tuple[str, dict[str, Any] | None]:
+    """Qaytaradi: (javob matni, token sarfi). Sarf None bo'lsa API chaqirilmagan."""
     today = today or date.today()
     if not rows:
-        return "Hozircha bazada yozuv yo'q. Avval bir nechta xarajat yozing."
+        return "Hozircha bazada yozuv yo'q. Avval bir nechta xarajat yozing.", None
 
     content = (
         f"Bugungi sana: {today.isoformat()}\n"
@@ -726,5 +784,7 @@ async def answer_question(question: str, rows, today: date | None = None) -> str
         messages=[{"role": "user", "content": content}],
     )
 
+    usage = _usage_of(resp, config.CHAT_MODEL)
     parts = [b.text for b in resp.content if b.type == "text"]
-    return "\n".join(parts).strip() or "Javob tayyorlab bo'lmadi, qaytadan urinib ko'ring."
+    text = "\n".join(parts).strip() or "Javob tayyorlab bo'lmadi, qaytadan urinib ko'ring."
+    return text, usage
