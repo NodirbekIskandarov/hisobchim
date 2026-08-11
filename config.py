@@ -109,6 +109,9 @@ TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
 # Obuna bo'lish uchun murojaat manzili (masalan @username).
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 
+# Admin web paneli manzili — egaga bildirishnomada ko'rsatiladi.
+ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "").strip().rstrip("/")
+
 # --------------------------------------------------------------------------- #
 # Obuna tariflari
 #

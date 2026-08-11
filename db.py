@@ -60,6 +60,21 @@ CREATE TABLE IF NOT EXISTS usage_log (
 
 CREATE INDEX IF NOT EXISTS idx_usage_user_day ON usage_log(user_id, day);
 CREATE INDEX IF NOT EXISTS idx_usage_day ON usage_log(day);
+
+-- Obuna so'rovlari. Bot bu yerga yozadi, admin web panel o'qib hal qiladi.
+-- Sxema admin panel bilan bir xil bo'lishi shart (hisobchim-admin/store.py).
+CREATE TABLE IF NOT EXISTS subscription_requests (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    plan_code   TEXT    NOT NULL,
+    price       INTEGER NOT NULL DEFAULT 0,
+    status      TEXT    NOT NULL DEFAULT 'kutilmoqda',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    decided_at  TEXT,
+    decided_by  TEXT    NOT NULL DEFAULT '',
+    note        TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_req_status ON subscription_requests(status, created_at DESC);
 """
 
 # Eski bazalarga keyin qo'shilgan ustunlar. CREATE TABLE IF NOT EXISTS mavjud
@@ -397,6 +412,48 @@ def grant_subscription(user_id: int, days: int) -> datetime:
         conn.execute("UPDATE users SET subscribed_until = ? WHERE user_id = ?",
                      (new_until.isoformat(), user_id))
         return new_until
+
+
+def _now_local() -> str:
+    """Mahalliy vaqtdagi ISO muhri.
+
+    SQLite'ning `datetime('now')` UTC beradi — admin panel bilan bir xil
+    bo'lishi uchun vaqtni ochiq yozamiz.
+    """
+    return datetime.now(config.TZ).isoformat(timespec="seconds")
+
+
+def add_subscription_request(user_id: int, plan_code: str, price: int) -> int:
+    """Foydalanuvchi tarif tanlaganda chaqiriladi. Admin web panelda ko'rinadi.
+
+    Takroriy bosishdan himoya: shu foydalanuvchining hal qilinmagan so'rovi
+    bo'lsa, yangisi ochilmaydi — mavjudining tarifi yangilanadi."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM subscription_requests "
+            "WHERE user_id = ? AND status = 'kutilmoqda' ORDER BY id DESC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        if row:
+            conn.execute(
+                "UPDATE subscription_requests SET plan_code = ?, price = ?, "
+                "created_at = datetime('now') WHERE id = ?",
+                (plan_code, price, row["id"]),
+            )
+            return int(row["id"])
+        cur = conn.execute(
+            "INSERT INTO subscription_requests (user_id, plan_code, price, created_at) "
+            "VALUES (?,?,?,?)",
+            (user_id, plan_code, price, _now_local()),
+        )
+        return int(cur.lastrowid)
+
+
+def pending_request_count() -> int:
+    with get_conn() as conn:
+        return int(conn.execute(
+            "SELECT COUNT(*) FROM subscription_requests WHERE status = 'kutilmoqda'"
+        ).fetchone()[0])
 
 
 def set_blocked(user_id: int, blocked: bool) -> bool:

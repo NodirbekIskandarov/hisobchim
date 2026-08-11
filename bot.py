@@ -1182,88 +1182,69 @@ async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tarif tanlash (foydalanuvchi) va tasdiqlash/rad etish (admin)."""
+    """Foydalanuvchi tarif tanladi.
+
+    Tasdiqlash bot ichida emas, admin web panelda amalga oshiriladi —
+    shu sabab bu yerda faqat so'rov yoziladi va egaga bildirishnoma boradi.
+    """
     query = update.callback_query
     user = update.effective_user
     data = query.data or ""
 
-    # --- Foydalanuvchi tarif tanladi ---
-    if data.startswith("sub:"):
-        plan = config.plan_by_code(data[4:])
-        if not plan:
-            await query.answer("Tarif topilmadi", show_alert=True)
-            return
-        await query.answer("So'rov yuborildi ✅")
-        await query.edit_message_text(
-            f"📨 <b>So'rovingiz yuborildi</b>\n\n"
-            f"Tarif: <b>{plan['label']}</b> — {_fmt_price(plan['price'])}\n\n"
-            f"Admin tez orada bog'lanadi. To'lovdan so'ng obunangiz "
-            f"avtomatik faollashadi.\n\n"
-            f"Bevosita yozish: {reports.esc(_support_contact())}",
-            parse_mode=ParseMode.HTML,
-        )
-
-        # Adminga bir bosishda tasdiqlash tugmasi bilan xabar.
-        uname = f"@{user.username}" if user.username else "(username yo'q)"
-        admin_text = (
-            "🔔 <b>Yangi obuna so'rovi</b>\n\n"
-            f"👤 {reports.esc(user.first_name or '')} {reports.esc(uname)}\n"
-            f"🆔 <code>{user.id}</code>\n"
-            f"💎 {plan['label']} — {_fmt_price(plan['price'])} ({plan['days']} kun)"
-        )
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅ Tasdiqlash",
-                                 callback_data=f"subok:{user.id}:{plan['code']}"),
-            InlineKeyboardButton("❌ Rad etish", callback_data=f"subno:{user.id}"),
-        ]])
-        for owner in config.OWNER_IDS:
-            try:
-                await context.bot.send_message(owner, admin_text,
-                                               parse_mode=ParseMode.HTML, reply_markup=kb)
-            except Exception:
-                log.warning("Adminga so'rov yuborilmadi: %s", owner)
+    if not data.startswith("sub:"):
+        # Eski xabarlardagi tasdiqlash tugmalari — endi ishlatilmaydi.
+        await query.answer("Bu tugma endi ishlamaydi. Admin panelidan foydalaning.",
+                           show_alert=True)
         return
 
-    # --- Bundan keyingisi faqat admin uchun ---
-    if user.id not in config.OWNER_IDS:
-        await query.answer("Ruxsat yo'q.", show_alert=True)
+    plan = config.plan_by_code(data[4:])
+    if not plan:
+        await query.answer("Tarif topilmadi", show_alert=True)
         return
 
-    if data.startswith("subok:"):
-        _, raw_id, code = data.split(":")
-        plan = config.plan_by_code(code)
-        if not plan:
-            await query.answer("Tarif topilmadi", show_alert=True)
-            return
-        target = int(raw_id)
-        until = db.grant_subscription(target, plan["days"])
-        await query.answer("Tasdiqlandi")
-        await query.edit_message_text(
-            f"✅ <b>Obuna berildi</b>\n\n"
-            f"🆔 <code>{target}</code>\n"
-            f"💎 {plan['label']} — {_fmt_price(plan['price'])}\n"
-            f"📅 {_fmt_dt(until)} gacha",
-            parse_mode=ParseMode.HTML,
-        )
+    db.add_subscription_request(user.id, plan["code"], plan["price"])
+    await query.answer("So'rov yuborildi ✅")
+    await query.edit_message_text(
+        f"📨 <b>So'rovingiz qabul qilindi</b>\n\n"
+        f"Tarif: <b>{plan['label']}</b> — {_fmt_price(plan['price'])}\n\n"
+        f"To'lov bo'yicha {reports.esc(_support_contact())} ga yozing. "
+        f"To'lov tasdiqlangach obunangiz avtomatik faollashadi va sizga "
+        f"xabar keladi.",
+        parse_mode=ParseMode.HTML,
+    )
+
+    uname = f"@{user.username}" if user.username else "(username yo'q)"
+    note = (
+        "🔔 <b>Yangi obuna so'rovi</b>\n\n"
+        f"👤 {reports.esc(user.first_name or '')} {reports.esc(uname)}\n"
+        f"🆔 <code>{user.id}</code>\n"
+        f"💎 {plan['label']} — {_fmt_price(plan['price'])}\n\n"
+        f"Tasdiqlash: {config.ADMIN_PANEL_URL or 'admin panel'}"
+    )
+    for owner in config.OWNER_IDS:
         try:
-            await context.bot.send_message(
-                target,
-                f"🎉 <b>Obunangiz faollashtirildi!</b>\n\n"
-                f"Tarif: {plan['label']}\n"
-                f"Amal qilish muddati: <b>{_fmt_dt(until)}</b>\n\n"
-                f"Rahmat! Holatni ko'rish: /holat",
-                parse_mode=ParseMode.HTML,
-            )
+            await context.bot.send_message(owner, note, parse_mode=ParseMode.HTML,
+                                           disable_web_page_preview=True)
         except Exception:
-            log.info("Obuna xabarini yuborib bo'lmadi: %s", target)
-        return
+            log.warning("Adminga bildirishnoma yuborilmadi: %s", owner)
 
-    if data.startswith("subno:"):
-        target = int(data.split(":")[1])
-        await query.answer("Rad etildi")
-        await query.edit_message_text(f"❌ So'rov rad etildi (<code>{target}</code>).",
-                                      parse_mode=ParseMode.HTML)
+
+async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Egaga admin panel havolasini beradi."""
+    user = update.effective_user
+    if user is None or user.id not in config.OWNER_IDS:
         return
+    url = config.ADMIN_PANEL_URL
+    if not url:
+        await update.effective_message.reply_text(
+            "ADMIN_PANEL_URL sozlanmagan (.env faylida).")
+        return
+    pending = db.pending_request_count()
+    text = [f"🛠 <b>Admin boshqaruv paneli</b>\n\n{url}"]
+    if pending:
+        text.append(f"\n\n⏳ {pending} ta obuna so'rovi javob kutmoqda.")
+    await update.effective_message.reply_text(
+        "".join(text), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 @private_only
@@ -1306,107 +1287,10 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
-@owner_only
-async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users = db.user_count()
-    u30 = db.usage_summary(days=30)
-    u1 = db.usage_summary(days=1)
-
-    lines = [
-        "🛠 <b>Admin paneli</b>", "",
-        "<b>Foydalanuvchilar</b>",
-        f"  Jami: {users['total']}",
-        f"  Obunali: {users['subscribed']}",
-        f"  Sinovda: {users['trial']}",
-        f"  Bloklangan: {users['blocked']}",
-        "",
-        "<b>Xarajat (30 kun)</b>",
-        f"  Chaqiruvlar: {u30['calls']}",
-        f"  Narx: ${u30['cost_usd']:.2f}",
-        f"  Keshdan o'qilgan: {u30['cache_read']:,} token".replace(",", " "),
-    ]
-    for op in u30["by_operation"]:
-        lines.append(f"    {op['operation']}: {op['calls']} ta · ${op['cost_usd']:.2f}")
-    lines += ["", f"<b>Bugun:</b> {u1['calls']} chaqiruv · ${u1['cost_usd']:.2f}"]
-
-    top = db.top_spenders(days=30, limit=5)
-    if top:
-        lines += ["", "<b>Eng ko'p sarflaganlar (30 kun)</b>"]
-        for t in top:
-            who = reports.esc(t["first_name"] or str(t["user_id"]))
-            uname = f" @{reports.esc(t['username'])}" if t["username"] else ""
-            lines.append(f"  {who}{uname} — ${t['cost_usd']:.3f} ({t['calls']} ta)")
-
-    lines += [
-        "", "<b>Buyruqlar</b>",
-        "<code>/berish 123456 30</code> — 30 kunlik obuna berish",
-        "<code>/bloklash 123456</code> · <code>/ochish 123456</code>",
-        "<code>/royxat</code> — oxirgi foydalanuvchilar",
-    ]
-    await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
-
-
-@owner_only
-async def cmd_grant(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args or []
-    if len(args) < 2 or not args[0].isdigit() or not args[1].isdigit():
-        await update.effective_message.reply_text("Foydalanish: /berish <user_id> <kun>")
-        return
-    target, days = int(args[0]), int(args[1])
-    until = db.grant_subscription(target, days)
-    await update.effective_message.reply_text(
-        f"✅ {target} uchun obuna {_fmt_dt(until)} gacha uzaytirildi."
-    )
-    try:
-        await context.bot.send_message(
-            target,
-            f"🎉 Obunangiz faollashtirildi!\nAmal qilish muddati: {_fmt_dt(until)}",
-        )
-    except Exception:
-        log.info("Obuna xabarini yuborib bo'lmadi: %s", target)
-
-
-@owner_only
-async def cmd_block(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args or []
-    if not args or not args[0].isdigit():
-        await update.effective_message.reply_text("Foydalanish: /bloklash <user_id>")
-        return
-    ok = db.set_blocked(int(args[0]), True)
-    await update.effective_message.reply_text(
-        f"🚫 {args[0]} bloklandi." if ok else "Foydalanuvchi topilmadi."
-    )
-
-
-@owner_only
-async def cmd_unblock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args or []
-    if not args or not args[0].isdigit():
-        await update.effective_message.reply_text("Foydalanish: /ochish <user_id>")
-        return
-    ok = db.set_blocked(int(args[0]), False)
-    await update.effective_message.reply_text(
-        f"✅ {args[0]} blokdan chiqarildi." if ok else "Foydalanuvchi topilmadi."
-    )
-
-
-@owner_only
-async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rows = db.list_users(30)
-    if not rows:
-        await update.effective_message.reply_text("Hozircha foydalanuvchi yo'q.")
-        return
-    lines = [f"👥 <b>Oxirgi {len(rows)} foydalanuvchi</b>", ""]
-    for r in rows:
-        st = db.access_status(r["user_id"])
-        badge = {"owner": "👑", "subscribed": "✅", "trial": "🎁",
-                 "expired": "⏳", "blocked": "🚫"}.get(st["status"], "•")
-        uname = f" @{reports.esc(r['username'])}" if r["username"] else ""
-        lines.append(
-            f"{badge} <code>{r['user_id']}</code> {reports.esc(r['first_name'])}{uname}"
-        )
-    for chunk in _split_message("\n".join(lines)):
-        await update.effective_message.reply_text(chunk, parse_mode=ParseMode.HTML)
+# Admin boshqaruvi bot ichidan OLIB TASHLANDI — hammasi alohida web
+# panelda: https://hisobchim.niskandarov.uz
+# Sabab: statistikani, foydalanuvchilarni va to'lovlarni chat oynasida
+# boshqarish noqulay va xatoga moyil edi.
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -1437,13 +1321,10 @@ BOT_COMMANDS = [
 ]
 
 # Faqat bot egasining «/» menyusida ko'rinadigan buyruqlar.
+# Admin boshqaruvi web panelga ko'chirildi — bu yerda faqat /panel qoldi.
 OWNER_COMMANDS = BOT_COMMANDS + [
     ("id", "Telegram ID'ingiz"),
-    ("admin", "Statistika va sarf hisobi"),
-    ("berish", "Obuna berish: /berish <id> <kun>"),
-    ("bloklash", "Bloklash: /bloklash <id>"),
-    ("ochish", "Blokdan chiqarish: /ochish <id>"),
-    ("royxat", "Foydalanuvchilar ro'yxati"),
+    ("panel", "Admin boshqaruv paneli"),
 ]
 
 
@@ -1538,12 +1419,7 @@ def main() -> None:
     app.add_handler(CommandHandler(["obuna", "tarif"], cmd_plans))
     app.add_handler(CommandHandler("holat", cmd_status))
     app.add_handler(CommandHandler("id", cmd_id))
-    # Admin buyruqlari — owner_only dekoratori boshqalarga jimgina javob bermaydi.
-    app.add_handler(CommandHandler("admin", cmd_admin))
-    app.add_handler(CommandHandler("berish", cmd_grant))
-    app.add_handler(CommandHandler("bloklash", cmd_block))
-    app.add_handler(CommandHandler("ochish", cmd_unblock))
-    app.add_handler(CommandHandler("royxat", cmd_users))
+    app.add_handler(CommandHandler("panel", cmd_panel))
     app.add_handler(CommandHandler("bugun", _period_command("bugun")))
     app.add_handler(CommandHandler("kecha", _period_command("kecha")))
     app.add_handler(CommandHandler("hafta", _period_command("hafta")))
