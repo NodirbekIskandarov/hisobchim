@@ -1427,10 +1427,25 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
     if request_id is None:
         return False
 
-    photo = message.photo[-1] if message.photo else None
-    file_id = photo.file_id if photo else (
-        message.document.file_id if message.document else None)
-    if not file_id:
+    # Chek rasm (skrinshot) yoki PDF ko'rinishida kelishi mumkin —
+    # bank ilovalari ko'pincha PDF kvitansiya beradi.
+    kind = "rasm"
+    if message.photo:
+        file_id = message.photo[-1].file_id
+    elif message.document:
+        doc = message.document
+        mime = (doc.mime_type or "").lower()
+        name = (doc.file_name or "").lower()
+        if mime == PDF_TYPE or name.endswith(".pdf"):
+            kind = "pdf"
+        elif not mime.startswith("image/"):
+            await message.reply_text(
+                "⚠️ Chekni <b>rasm</b> (JPG/PNG) yoki <b>PDF</b> ko'rinishida "
+                "yuboring.",
+                parse_mode=ParseMode.HTML)
+            return True
+        file_id = doc.file_id
+    else:
         return False
 
     req = db.get_request(request_id)
@@ -1439,7 +1454,7 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
         await message.reply_text(i18n.t(lang_of(user.id, context), "proof_stale"))
         return True
 
-    db.attach_payment_proof(request_id, file_id)
+    db.attach_payment_proof(request_id, file_id, kind)
     _awaiting_proof.pop(user.id, None)
 
     plan = config.plan_by_code(req["plan_code"])
@@ -1460,8 +1475,12 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     for owner in config.OWNER_IDS:
         try:
-            await context.bot.send_photo(owner, file_id, caption=caption,
-                                         parse_mode=ParseMode.HTML)
+            if kind == "pdf":
+                await context.bot.send_document(owner, file_id, caption=caption,
+                                                parse_mode=ParseMode.HTML)
+            else:
+                await context.bot.send_photo(owner, file_id, caption=caption,
+                                             parse_mode=ParseMode.HTML)
         except Exception:
             log.warning("Adminga chek yuborilmadi: %s", owner)
     return True

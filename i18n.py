@@ -169,7 +169,8 @@ T = {
                "━━━━━━━━━━━━━━━━━━\n\n"
                "<b>Keyingi qadam:</b>\n"
                "1️⃣ Yuqoridagi kartaga <b>{price}</b> o'tkazing\n"
-               "2️⃣ To'lov chekining <b>skrinshotini shu yerga yuboring</b>\n"
+               "2️⃣ To'lov chekini shu yerga yuboring — <b>skrinshot rasm "
+               "yoki PDF</b>\n"
                "3️⃣ Admin tekshirib tasdiqlaydi — obunangiz darhol faollashadi\n\n"
                "<i>Karta raqamini bosib nusxa olishingiz mumkin.</i>\n"
                "Savol bo'lsa: {contact}"),
@@ -182,7 +183,7 @@ T = {
                "━━━━━━━━━━━━━━━━━━\n\n"
                "<b>Что дальше:</b>\n"
                "1️⃣ Переведите <b>{price}</b> на карту выше\n"
-               "2️⃣ Отправьте <b>скриншот чека сюда</b>\n"
+               "2️⃣ Отправьте чек сюда — <b>скриншот или PDF</b>\n"
                "3️⃣ Администратор проверит — подписка активируется сразу\n\n"
                "<i>Нажмите на номер карты, чтобы скопировать.</i>\n"
                "Вопросы: {contact}"),

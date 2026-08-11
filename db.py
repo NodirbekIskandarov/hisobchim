@@ -112,6 +112,10 @@ TABLE_MIGRATIONS = [
      "ALTER TABLE subscription_requests ADD COLUMN proof_file_id TEXT"),
     ("subscription_requests", "proof_at",
      "ALTER TABLE subscription_requests ADD COLUMN proof_at TEXT"),
+    # Chek rasm ham, PDF ham bo'lishi mumkin — admin panel qaysi
+    # ko'rinishda chizishni shu ustundan biladi.
+    ("subscription_requests", "proof_kind",
+     "ALTER TABLE subscription_requests ADD COLUMN proof_kind TEXT NOT NULL DEFAULT 'rasm'"),
     ("users", "referred_by", "ALTER TABLE users ADD COLUMN referred_by INTEGER"),
     ("users", "bonus_days",
      "ALTER TABLE users ADD COLUMN bonus_days INTEGER NOT NULL DEFAULT 0"),
@@ -691,14 +695,19 @@ def add_subscription_request(user_id: int, plan_code: str, price: int) -> int:
         return int(cur.lastrowid)
 
 
-def attach_payment_proof(request_id: int, file_id: str) -> bool:
-    """Foydalanuvchi yuborgan to'lov chekini so'rovga biriktiradi."""
+def attach_payment_proof(request_id: int, file_id: str, kind: str = "rasm") -> bool:
+    """Foydalanuvchi yuborgan to'lov chekini so'rovga biriktiradi.
+
+    kind: 'rasm' yoki 'pdf' — admin panel chekni qanday ko'rsatishini
+    shundan biladi.
+    """
     with get_conn() as conn:
         cur = conn.execute(
             """UPDATE subscription_requests
-               SET proof_file_id = ?, proof_at = ?, status = 'tekshiruvda'
+               SET proof_file_id = ?, proof_at = ?, proof_kind = ?,
+                   status = 'tekshiruvda'
                WHERE id = ? AND status IN ('kutilmoqda', 'tekshiruvda')""",
-            (file_id, _now_local(), request_id),
+            (file_id, _now_local(), kind, request_id),
         )
         return cur.rowcount > 0
 
