@@ -112,6 +112,12 @@ REFERRAL_BONUS_DAYS = int(os.getenv("REFERRAL_BONUS_DAYS", "7"))
 # Bu — tarmoq ishlamay qolgan holat uchun zaxira qiymat.
 USD_RATE_FALLBACK = float(os.getenv("USD_RATE_FALLBACK", "12600"))
 
+# Oylik AI sarfi chegarasi ($). Chegaraga yetganda bot AI amallarini
+# to'xtatadi va egaga xabar beradi. Kalit oshkor bo'lsa yoki kutilmagan
+# yuk kelsa hisobdan cheksiz pul ketishining oldini oladi.
+# 0 — chegarasiz (tavsiya etilmaydi).
+MONTHLY_BUDGET_USD = float(os.getenv("MONTHLY_BUDGET_USD", "50"))
+
 # Obuna bo'lish uchun murojaat manzili (masalan @username).
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 

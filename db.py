@@ -1058,6 +1058,19 @@ def count_today(user_id: int, operation: str) -> int:
         return int(row["n"])
 
 
+def month_cost() -> float:
+    """Shu oyning boshidan beri butun tizim bo'yicha AI sarfi ($).
+
+    Kalendar oy bo'yicha — Anthropic hisobi ham shunday hisoblanadi,
+    shuning uchun panel va konsoldagi son bir-biriga mos keladi.
+    """
+    start = _now().date().replace(day=1).isoformat()
+    with get_conn() as conn:
+        return float(conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log WHERE day >= ?",
+            (start,)).fetchone()[0])
+
+
 def usage_summary(user_id: int | None = None, days: int = 30) -> dict:
     """Sarf hisoboti. user_id berilmasa — butun tizim bo'yicha."""
     since = (_now() - timedelta(days=days)).date().isoformat()

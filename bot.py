@@ -12,6 +12,7 @@ import io
 import logging
 import time
 import uuid
+from datetime import datetime
 from functools import wraps
 from urllib.parse import quote
 
@@ -312,6 +313,62 @@ LIMITS = {
 }
 
 
+# Oylik sarf ogohlantirishi oyiga bir marta yuborilsin.
+_budget_warned: dict[str, bool] = {}
+
+
+async def _budget_ok(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Oylik AI sarfi chegaradan oshmaganini tekshiradi.
+
+    Nega kerak: API kaliti oshkor bo'lsa yoki kutilmagan yuk kelsa,
+    hisobdan cheksiz pul ketishi mumkin. Bot har bir chaqiruv narxini
+    allaqachon yozib boradi — shu bilan o'zini o'zi to'xtata oladi.
+
+    Chegara HAMMAGA, shu jumladan egaga ham qo'llanadi: bu pul masalasi,
+    imtiyoz masalasi emas.
+    """
+    cap = config.MONTHLY_BUDGET_USD
+    if cap <= 0:
+        return True
+
+    spent = db.month_cost()
+    month = datetime.now(config.TZ).strftime("%Y-%m")
+
+    # 80% da egani bir marta ogohlantiramiz — to'xtab qolishdan oldin
+    # xabari bo'lsin.
+    if spent >= cap * 0.8 and not _budget_warned.get(month):
+        # Faqat joriy oyni saqlaymiz — eskisi kerak emas.
+        _budget_warned.clear()
+        _budget_warned[month] = True
+        for owner in config.OWNER_IDS:
+            try:
+                await context.bot.send_message(
+                    owner,
+                    f"⚠️ <b>Oylik AI sarfi chegaraga yaqinlashdi</b>\n\n"
+                    f"Sarflandi: <b>${spent:.2f}</b> / ${cap:.2f} "
+                    f"({100 * spent / cap:.0f}%)\n\n"
+                    f"Chegaraga yetganda bot AI amallarini to'xtatadi. "
+                    f"Oshirish: <code>.env</code> dagi "
+                    f"<code>MONTHLY_BUDGET_USD</code>",
+                    parse_mode=ParseMode.HTML)
+            except Exception:
+                log.info("Byudjet ogohlantirishi yuborilmadi: %s", owner)
+
+    if spent < cap:
+        return True
+
+    log.warning("Oylik AI byudjeti tugadi: $%.2f / $%.2f", spent, cap)
+    msg = update.effective_message
+    if msg:
+        await msg.reply_text(
+            "⏸ <b>Bot vaqtincha to'xtatildi</b>\n\n"
+            "Oylik xizmat chegarasi tugadi. Administrator xabardor "
+            "qilindi — tez orada tiklanadi.\n\n"
+            "<i>Yozuvlaringiz saqlanib turibdi.</i>",
+            parse_mode=ParseMode.HTML)
+    return False
+
+
 async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
                       operation: str) -> int | None:
     """Limitni tekshiradi va joy band qiladi.
@@ -319,6 +376,11 @@ async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
     Qaytaradi: usage_log qatorining id'si (amal tugagach yozish uchun),
     yoki limit tugagan bo'lsa None."""
     user_id = update.effective_user.id
+
+    # Oylik pul chegarasi kunlik limitlardan oldin tekshiriladi.
+    if not await _budget_ok(update, context):
+        return None
+
     if user_id in config.OWNER_IDS:
         return db.usage_begin(user_id, operation)
 
