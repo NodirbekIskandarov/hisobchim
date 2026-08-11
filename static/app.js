@@ -105,6 +105,19 @@
     return groupThousands(String(rounded)) + " " + (symbols.som || "so'm");
   }
 
+  /** Donut markazi uchun: son va birlik alohida qaytariladi. Bitta qatorga
+   * sig'magan uzun summa tasodifan bo'linib ketmasin — birlik ataylab
+   * pastda, kichikroq shriftda turadi. */
+  function fmtMoneyParts(value, currency) {
+    const symbols = (state.me && state.me.currency_symbols) || { som: "so'm", usd: "$" };
+    if (currency === "usd") {
+      const v = Math.round(value * 100) / 100;
+      const text = Number.isInteger(v) ? String(v) : v.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+      return { num: groupThousands(text), unit: "$" };
+    }
+    return { num: groupThousands(String(Math.round(value))), unit: symbols.som || "so'm" };
+  }
+
   function groupThousands(numStr) {
     const neg = numStr.startsWith("-");
     if (neg) numStr = numStr.slice(1);
@@ -135,8 +148,31 @@
     const el = document.getElementById("toast");
     el.textContent = msg;
     el.classList.remove("hidden");
+    // Animatsiya har safar qayta ishga tushishi uchun qayta ulaymiz
+    el.style.animation = "none";
+    void el.offsetWidth;
+    el.style.animation = "";
     clearTimeout(toast._t);
     toast._t = setTimeout(() => el.classList.add("hidden"), 2400);
+  }
+
+  /** Telegram'ning taktil javobi — tugma bosilganini his qilish uchun.
+   * Qo'llab-quvvatlanmasa jimgina o'tkazib yuboriladi. */
+  function haptic(style) {
+    try {
+      const h = tg && tg.HapticFeedback;
+      if (!h) return;
+      if (style === "success" || style === "error" || style === "warning") {
+        h.notificationOccurred(style);
+      } else {
+        h.impactOccurred(style || "light");
+      }
+    } catch (_) { /* eski Telegram versiyalari */ }
+  }
+
+  /** Yuklanayotganda bo'sh matn emas, ro'yxat shakli ko'rsatiladi. */
+  function skeleton(rows) {
+    return `<div class="skeleton">${'<div class="sk-row"></div>'.repeat(rows || 4)}</div>`;
   }
 
   /** Foizni o'qishga qulay yozadi. Nolga teng bo'lmagan juda kichik ulush
@@ -228,14 +264,27 @@
         circle.setAttribute("cy", cy);
         circle.setAttribute("r", r);
         circle.setAttribute("stroke", seg.color);
-        circle.setAttribute("stroke-dasharray", `${len} ${circumference - len}`);
         circle.setAttribute("stroke-dashoffset", -offset);
+        // Noldan boshlanadi, keyingi kadrda haqiqiy uzunlikka o'sadi —
+        // shunda CSS transition bo'lakni aylanib chizilgandek ko'rsatadi.
+        circle.setAttribute("stroke-dasharray", `0 ${circumference}`);
         g.appendChild(circle);
+        const finalDash = `${len} ${circumference - len}`;
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => circle.setAttribute("stroke-dasharray", finalDash))
+        );
         offset += share * circumference;
       });
     }
 
-    document.getElementById("donutValue").textContent = centerValue;
+    const valEl = document.getElementById("donutValue");
+    if (centerValue && typeof centerValue === "object") {
+      valEl.innerHTML =
+        `<span class="donut-num">${escapeHtml(centerValue.num)}</span>` +
+        `<span class="donut-unit">${escapeHtml(centerValue.unit)}</span>`;
+    } else {
+      valEl.textContent = centerValue;
+    }
     document.getElementById("donutSub").textContent = centerSub;
   }
 
@@ -341,7 +390,7 @@
     const listEl = document.getElementById("categoryList");
 
     if (!data) {
-      renderDonut([], fmtMoney(0, cur), "");
+      renderDonut([], fmtMoneyParts(0, cur), "");
       renderLegend([], cur);
       listEl.innerHTML = '<div class="empty-state">Bu davrda yozuv yo\'q.</div>';
       return;
@@ -353,8 +402,8 @@
           { value: data.kirim, color: STATUS.kirim },
           { value: data.chiqim, color: STATUS.chiqim },
         ],
-        fmtMoney(data.farq, cur),
-        "Farq (kirim − chiqim)"
+        fmtMoneyParts(data.farq, cur),
+        "Farq"
       );
       renderLegend([
         { label: "Kirim", value: data.kirim, color: STATUS.kirim },
@@ -367,7 +416,7 @@
       const folded = foldToOther(data.kirim_kategoriyalari);
       renderDonut(
         folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
-        fmtMoney(data.kirim, cur), "Kirim"
+        fmtMoneyParts(data.kirim, cur), "Kirim"
       );
       // Kategoriya bo'laklari pastdagi ro'yxatda nomi bilan berilgan —
       // takrorlamaymiz, faqat 2 bo'lakli ko'rinishlarda yorliq kerak.
@@ -377,7 +426,7 @@
       const folded = foldToOther(data.chiqim_kategoriyalari);
       renderDonut(
         folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
-        fmtMoney(data.chiqim, cur), "Chiqim"
+        fmtMoneyParts(data.chiqim, cur), "Chiqim"
       );
       renderLegend([], cur);
       listEl.innerHTML = renderCategorySection("Kategoriyalar", data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
@@ -397,8 +446,8 @@
         { value: berdim, color: STATUS.qarz_berdim },
         { value: oldim, color: STATUS.qarz_oldim },
       ],
-      fmtMoney(berdim - oldim, cur),
-      "Sof qarz (menga − mendan)"
+      fmtMoneyParts(berdim - oldim, cur),
+      "Sof qarz"
     );
     renderLegend([
       { label: "📤 Menga qarzdorlar", value: berdim, color: STATUS.qarz_berdim },
@@ -434,7 +483,7 @@
   async function loadRecent(append) {
     const listEl = document.getElementById("recentList");
     if (!append) {
-      listEl.innerHTML = '<div class="spinner">Yuklanmoqda…</div>';
+      listEl.innerHTML = skeleton(4);
       setListTitle("", false);  // filtr yorlig'i eski holatda qolib ketmasin
     }
 
@@ -473,7 +522,7 @@
    * "So'nggi yozuvlar" ro'yxatiga filtrlab ko'rsatadi. */
   async function openFilteredList(kind, category) {
     const listEl = document.getElementById("recentList");
-    listEl.innerHTML = '<div class="spinner">Yuklanmoqda…</div>';
+    listEl.innerHTML = skeleton(3);
     const params = new URLSearchParams({
       start: state.summary.start, end: state.summary.end,
       currency: state.currency, kind, search: category, limit: 100,
@@ -557,8 +606,22 @@
   // Yozuv tafsiloti / tahrirlash paneli
   // ----------------------------------------------------------------------- //
 
-  function openSheet(id) { document.getElementById(id).classList.remove("hidden"); }
-  function closeSheet(id) { document.getElementById(id).classList.add("hidden"); }
+  /** Panel pastdan sirg'alib chiqadi. .hidden (display:none) olib tashlangach
+   * keyingi kadrda .open qo'shiladi — aks holda brauzer o'tishni animatsiya
+   * qilmaydi (bir kadrda ikkala holat qo'llansa transition ishlamaydi). */
+  function openSheet(id) {
+    const el = document.getElementById(id);
+    el.classList.remove("hidden");
+    requestAnimationFrame(() => el.classList.add("open"));
+    haptic("light");
+  }
+
+  function closeSheet(id) {
+    const el = document.getElementById(id);
+    el.classList.remove("open");
+    clearTimeout(el._closeTimer);
+    el._closeTimer = setTimeout(() => el.classList.add("hidden"), 260);
+  }
 
   function openDetailSheet(tx) {
     state.detailTx = tx;
@@ -651,38 +714,38 @@
   async function updateTxCategory(id, category) {
     try {
       await api(`/api/transactions/${id}`, { method: "PATCH", body: { category } });
-      toast("Kategoriya yangilandi");
+      haptic("success"); toast("Kategoriya yangilandi");
       closeSheet("detailBackdrop");
       refreshAll();
-    } catch (e) { toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
   }
 
   async function toggleTxKind(id, newKind) {
     try {
       await api(`/api/transactions/${id}`, { method: "PATCH", body: { kind: newKind } });
-      toast("Turi yangilandi");
+      haptic("success"); toast("Turi yangilandi");
       closeSheet("detailBackdrop");
       refreshAll();
-    } catch (e) { toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
   }
 
   async function settleDebt(id) {
     try {
       await api(`/api/debts/${id}/settle`, { method: "POST" });
-      toast("Qarz yopildi ✅");
+      haptic("success"); toast("Qarz yopildi ✅");
       closeSheet("detailBackdrop");
       await loadDebts();
       refreshAll();
-    } catch (e) { toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
   }
 
   async function deleteTx(id) {
     try {
       await api(`/api/transactions/${id}`, { method: "DELETE" });
-      toast("O'chirildi");
+      haptic("success"); toast("O'chirildi");
       closeSheet("detailBackdrop");
       refreshAll();
-    } catch (e) { toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
   }
 
   function refreshAll() {
@@ -826,11 +889,11 @@
     };
     try {
       await api("/api/transactions", { method: "POST", body });
-      toast("Saqlandi ✅");
+      haptic("success"); toast("Saqlandi ✅");
       closeSheet("addBackdrop");
       refreshAll();
     } catch (e) {
-      toast("Xatolik: " + e.message);
+      haptic("error"); toast("Xatolik: " + e.message);
     }
   }
 
@@ -879,7 +942,7 @@
     const metaEl = document.getElementById("searchMeta");
     if (!q) { resultsEl.innerHTML = ""; metaEl.textContent = ""; return; }
 
-    resultsEl.innerHTML = '<div class="spinner">Qidirilmoqda…</div>';
+    resultsEl.innerHTML = skeleton(3);
     try {
       const data = await api(`/api/transactions?search=${encodeURIComponent(q)}&limit=100`);
       resultsEl.innerHTML = "";
@@ -903,6 +966,7 @@
   function initTabs() {
     document.querySelectorAll("#periodTabs button").forEach((btn) => {
       btn.onclick = () => {
+        haptic("light");
         document.querySelectorAll("#periodTabs button").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
         state.period = btn.dataset.period;
@@ -913,6 +977,7 @@
 
     document.querySelectorAll("#kindTabs button").forEach((btn) => {
       btn.onclick = () => {
+        haptic("light");
         document.querySelectorAll("#kindTabs button").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
         state.kind = btn.dataset.kind;
@@ -923,10 +988,12 @@
     });
 
     document.getElementById("prevRange").onclick = () => {
+      haptic("light");
       state.ref = shiftRef(state.period, state.ref, -1);
       loadSummary();
     };
     document.getElementById("nextRange").onclick = () => {
+      haptic("light");
       state.ref = shiftRef(state.period, state.ref, 1);
       loadSummary();
     };

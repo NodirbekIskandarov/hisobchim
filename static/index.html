@@ -8,6 +8,9 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
+<div class="aurora" aria-hidden="true">
+  <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
+</div>
 <div id="app">
 
   <header class="topbar">
@@ -50,20 +53,23 @@
 
     <div class="currency-toggle" id="currencyToggle"></div>
 
-    <div class="donut-wrap">
-      <svg id="donutSvg" viewBox="0 0 200 200" class="donut">
-        <circle cx="100" cy="100" r="80" class="donut-bg" />
-        <g id="donutSegments" class="donut-segments"></g>
-      </svg>
-      <div class="donut-center">
-        <div id="donutValue" class="donut-value">0</div>
-        <div id="donutSub" class="donut-sub"></div>
+    <section class="card">
+      <div class="donut-wrap">
+        <svg id="donutSvg" viewBox="0 0 200 200" class="donut">
+          <circle cx="100" cy="100" r="80" class="donut-bg" />
+          <g id="donutSegments" class="donut-segments"></g>
+        </svg>
+        <div class="donut-center">
+          <div id="donutValue" class="donut-value">—</div>
+          <div id="donutSub" class="donut-sub"></div>
+        </div>
       </div>
-    </div>
+      <div id="donutLegend" class="donut-legend"></div>
+    </section>
 
-    <div id="donutLegend" class="donut-legend"></div>
-
-    <div id="categoryList" class="category-list"></div>
+    <section class="card" id="categoryCard">
+      <div id="categoryList" class="category-list"></div>
+    </section>
 
     <h3 class="section-title" id="listTitle">So'nggi yozuvlar</h3>
     <div id="recentList" class="tx-list"></div>
