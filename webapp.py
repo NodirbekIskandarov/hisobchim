@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import secrets
 import time
 from datetime import date, timedelta
 from urllib.parse import parse_qsl
@@ -103,17 +104,63 @@ def _validate_init_data(init_data: str) -> dict:
 
 def current_user(x_telegram_init_data: str = Header(default="")) -> dict:
     """FastAPI dependency: har bir himoyalangan endpoint shu orqali autentifikatsiya qiladi."""
-    return _validate_init_data(x_telegram_init_data)
+    user = _validate_init_data(x_telegram_init_data)
+    _check_rate(user["user_id"])
+    return user
 
 
-def current_user_flexible(
-    x_telegram_init_data: str = Header(default=""),
-    init_data: str = Query(default=""),
-) -> dict:
-    """CSV eksport kabi to'g'ridan-to'g'ri havola orqali ochiladigan so'rovlar
-    uchun — brauzer havolasi maxsus sarlavha yubora olmaydi, shuning uchun
-    initData query-parametr sifatida ham qabul qilinadi (imzo tekshiruvi bir xil)."""
-    return _validate_init_data(x_telegram_init_data or init_data)
+# --------------------------------------------------------------------------- #
+# Eksport tokeni
+#
+# Ilgari CSV havolasi initData'ni URL parametrida olib yurar edi. Bunday
+# havola brauzer tarixida va proxy loglarida 24 soat davomida amal qilib
+# qolardi. Endi: avval POST bilan bir martalik token olinadi, u 60 soniya
+# yashaydi va ishlatilgach darhol o'chadi.
+# --------------------------------------------------------------------------- #
+
+EXPORT_TOKEN_TTL = 60
+_export_tokens: dict[str, tuple[int, float]] = {}
+
+
+def _issue_export_token(user_id: int) -> str:
+    now = time.time()
+    for tok, (_, exp) in list(_export_tokens.items()):
+        if exp < now:
+            _export_tokens.pop(tok, None)
+    token = secrets.token_urlsafe(32)
+    _export_tokens[token] = (user_id, now + EXPORT_TOKEN_TTL)
+    return token
+
+
+def _consume_export_token(token: str) -> int:
+    entry = _export_tokens.pop(token, None)
+    if not entry:
+        raise HTTPException(401, "Havola eskirgan — panelni yangilab qayta urining")
+    user_id, expires = entry
+    if expires < time.time():
+        raise HTTPException(401, "Havola eskirgan — panelni yangilab qayta urining")
+    return user_id
+
+
+# --------------------------------------------------------------------------- #
+# So'rov chegarasi — bitta foydalanuvchi serverni band qilib qo'ymasin
+# --------------------------------------------------------------------------- #
+
+RATE_LIMIT = 90          # daqiqasiga so'rov
+_rate: dict[int, list[float]] = {}
+
+
+def _check_rate(user_id: int) -> None:
+    now = time.time()
+    hits = [t for t in _rate.get(user_id, []) if now - t < 60]
+    if len(hits) >= RATE_LIMIT:
+        raise HTTPException(429, "Juda ko'p so'rov. Bir daqiqadan keyin urinib ko'ring.")
+    hits.append(now)
+    _rate[user_id] = hits
+    # Xotira o'smasin: eskirgan yozuvlarni vaqti-vaqti bilan tozalaymiz.
+    if len(_rate) > 2000:
+        for uid in [u for u, ts in _rate.items() if not ts or now - ts[-1] > 300]:
+            _rate.pop(uid, None)
 
 
 # --------------------------------------------------------------------------- #
@@ -271,32 +318,16 @@ def api_transactions(
     if currency and currency not in config.SUPPORTED_CURRENCIES:
         raise HTTPException(400, "Noto'g'ri valyuta")
 
-    all_rows = db.list_range(user["user_id"], start_d, end_d, [kind] if kind else None)
-    if currency:
-        all_rows = [r for r in all_rows if r["currency"] == currency]
-    if receipt_id:
-        all_rows = [r for r in all_rows if r["receipt_id"] == receipt_id]
-    if search:
-        needle = search.strip().lower()
-        all_rows = [
-            r for r in all_rows
-            if needle in (r["note"] or "").lower()
-            or needle in (r["category"] or "").lower()
-            or needle in (r["person"] or "").lower()
-            or needle in (r["raw_text"] or "").lower()
-        ]
-
-    totals: dict[str, float] = {}
-    for r in all_rows:
-        totals[r["currency"]] = round(totals.get(r["currency"], 0.0) + r["amount"], 2)
-
-    all_rows = sorted(all_rows, key=lambda r: (r["occurred_on"], r["id"]), reverse=True)
-    page = all_rows[offset:offset + limit]
+    # Filtrlash, tartiblash va sahifalash SQL tomonida — foydalanuvchida
+    # bir necha yillik yozuv to'planganda ham tez ishlashi kerak.
+    result = db.search_transactions(
+        user["user_id"], start_d, end_d, kind=kind, currency=currency,
+        search=search, receipt_id=receipt_id, limit=limit, offset=offset)
 
     return {
-        "total_count": len(all_rows),
-        "totals": totals,
-        "items": [_serialize_tx(r) for r in page],
+        "total_count": result["total_count"],
+        "totals": result["totals"],
+        "items": [_serialize_tx(r) for r in result["items"]],
     }
 
 
@@ -388,9 +419,16 @@ def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
     return _serialize_tx(db.get_transaction(user["user_id"], tx_id))
 
 
+@app.post("/api/export/token")
+def api_export_token(user: dict = Depends(current_user)):
+    """Bir martalik, 60 soniya yashaydigan yuklab olish tokeni."""
+    return {"token": _issue_export_token(user["user_id"]), "ttl": EXPORT_TOKEN_TTL}
+
+
 @app.get("/api/export.csv")
-def api_export_csv(user: dict = Depends(current_user_flexible)):
-    rows = db.all_rows(user["user_id"])
+def api_export_csv(token: str = Query(...)):
+    user_id = _consume_export_token(token)
+    rows = db.all_rows(user_id)
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(

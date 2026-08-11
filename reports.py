@@ -204,6 +204,8 @@ def receipt_text(data: dict, day_total: float | None = None) -> str:
     items = data["mahsulotlar"]
     check = data["tekshiruv"]
     total = check["hisoblangan"]
+    # Chek dollarda bo'lishi ham mumkin — summalar shu valyutada ko'rsatiladi.
+    cur = data.get("valyuta") or "som"
 
     head = "🧾 <b>Chek qabul qilindi</b>"
     if data["dokon"]:
@@ -221,25 +223,25 @@ def receipt_text(data: dict, day_total: float | None = None) -> str:
         share = subtotal / total if total else 0
         icon = config.CATEGORY_ICONS.get(name, "•")
         lines.append(
-            f"{icon} {esc(name)} — {fmt_money(subtotal)} ({share * 100:.0f}%)"
+            f"{icon} {esc(name)} — {fmt_money(subtotal, cur)} ({share * 100:.0f}%)"
         )
         lines.append(f"   <code>{_bar(share)}</code> {len(amounts)} ta")
 
     lines.append("")
-    lines.append(f"💵 <b>Mahsulotlar jami: {fmt_money(total)}</b>")
+    lines.append(f"💵 <b>Mahsulotlar jami: {fmt_money(total, cur)}</b>")
 
     if data.get("chegirma"):
-        lines.append(f"🏷 Chegirma: −{fmt_money(data['chegirma'])}")
+        lines.append(f"🏷 Chegirma: −{fmt_money(data['chegirma'], cur)}")
 
     # Tekshiruv — chekdagi JAMI bilan solishtirish.
     if check["holat"] == "mos":
-        lines.append(f"✅ Chekdagi jami bilan mos: {fmt_money(check['chekdagi'])}")
+        lines.append(f"✅ Chekdagi jami bilan mos: {fmt_money(check['chekdagi'], cur)}")
     elif check["holat"] == "farqli":
-        lines.append(f"⚠️ Chekdagi jami: {fmt_money(check['chekdagi'])}")
+        lines.append(f"⚠️ Chekdagi jami: {fmt_money(check['chekdagi'], cur)}")
         farq = check["farq"]
         yon = "ortiq" if farq > 0 else "kam"
         lines.append(
-            f"   <i>Farq: {fmt_money(abs(farq))} {yon} chiqdi — "
+            f"   <i>Farq: {fmt_money(abs(farq), cur)} {yon} chiqdi — "
             f"ba'zi qatorlar noto'g'ri o'qilgan bo'lishi mumkin.</i>"
         )
     else:
@@ -249,7 +251,7 @@ def receipt_text(data: dict, day_total: float | None = None) -> str:
     if len(items) > 1:
         top = max(items, key=lambda i: i["summa"])
         lines.append(
-            f"🔝 Eng qimmati: {esc(top['nomi'])} — {fmt_money(top['summa'])}"
+            f"🔝 Eng qimmati: {esc(top['nomi'])} — {fmt_money(top['summa'], cur)}"
         )
 
     if day_total:

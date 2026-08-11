@@ -13,6 +13,7 @@ import logging
 import time
 import uuid
 from functools import wraps
+from urllib.parse import quote
 
 from telegram import (
     InlineKeyboardButton,
@@ -37,7 +38,9 @@ from telegram.ext import (
 import ai
 import config
 import db
+import i18n
 import reports
+import sharecard
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
@@ -234,6 +237,37 @@ def _support_contact() -> str:
     return config.SUPPORT_CONTACT or "administrator"
 
 
+def lang_of(user_id: int, context: ContextTypes.DEFAULT_TYPE | None = None) -> str:
+    """Foydalanuvchi tili. Bir so'rov ichida keshlanadi — har bir matn uchun
+    bazaga borish shart emas."""
+    if context is not None:
+        cached = context.user_data.get("_lang")
+        if cached:
+            return cached
+    value = i18n.normalize(db.get_lang(user_id))
+    if context is not None:
+        context.user_data["_lang"] = value
+    return value
+
+
+async def _deny(msg, user, access) -> None:
+    """Kirishi yopiq foydalanuvchiga sababini tushuntiradi."""
+    if msg is None:
+        return
+    lang = lang_of(user.id)
+    if access["status"] == "blocked":
+        await msg.reply_text(i18n.t(lang, "blocked"))
+    elif access["status"] == "not_allowed":
+        log.info("Yopiq rejim: id=%s username=%s", user.id, user.username)
+        await msg.reply_text(i18n.t(lang, "closed_beta", id=user.id))
+    else:  # expired
+        await msg.reply_text(
+            i18n.t(lang, "expired", contact=reports.esc(_support_contact())),
+            parse_mode=ParseMode.HTML,
+            reply_markup=plans_keyboard(lang),
+        )
+
+
 def private_only(func):
     """Kirish nazorati: ega — cheksiz; boshqalar — bepul sinov yoki obuna."""
     @wraps(func)
@@ -247,22 +281,7 @@ def private_only(func):
         if access["ok"]:
             return await func(update, context)
 
-        msg = update.effective_message
-        if msg is None:
-            return
-        if access["status"] == "blocked":
-            await msg.reply_text("🚫 Hisobingiz bloklangan.")
-        elif access["status"] == "not_allowed":
-            log.info("Yopiq rejim: id=%s username=%s", user.id, user.username)
-            await msg.reply_text(
-                f"Bot hozircha yopiq sinovda.\nSizning ID: {user.id}"
-            )
-        else:  # expired
-            await msg.reply_text(
-                SUBSCRIBE_TEXT.format(contact=reports.esc(_support_contact())),
-                parse_mode=ParseMode.HTML,
-                reply_markup=plans_keyboard(),
-            )
+        await _deny(update.effective_message, user, access)
         return
 
     return wrapper
@@ -318,20 +337,20 @@ async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
 # Klaviaturalar
 # --------------------------------------------------------------------------- #
 
-def main_menu() -> ReplyKeyboardMarkup:
+def main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     """Har chaqiruvda quriladi — WEBAPP_URL ishga tushirilgandan keyin
     qo'shilsa, botni qayta ishga tushirmasdan ham tugma paydo bo'ladi."""
     rows = [
-        ["📊 Bugun", "📅 Hafta", "🗓 Oy"],
-        ["🧾 Oxirgi", "🤝 Qarzlar", "📈 Yil"],
-        ["🧾 Uzun chek", "📤 CSV", "📖 Qo'llanma"],
-        ["💎 Obuna"],
+        ["today", "week", "month"],
+        ["recent", "debts", "year"],
+        ["longbill", "csv", "guide"],
+        ["budget", "referral", "subs"],
     ]
-    keyboard = [[KeyboardButton(text) for text in row] for row in rows]
+    keyboard = [[KeyboardButton(i18n.btn(lang, key)) for key in row] for row in rows]
     if config.WEBAPP_URL:
         keyboard.append([
             KeyboardButton(
-                "📊 Boshqaruv paneli", web_app=WebAppInfo(url=config.WEBAPP_URL)
+                i18n.btn(lang, "panel"), web_app=WebAppInfo(url=config.WEBAPP_URL)
             )
         ])
     return ReplyKeyboardMarkup(
@@ -340,11 +359,12 @@ def main_menu() -> ReplyKeyboardMarkup:
         input_field_placeholder="Xarajat yozing yoki chek rasmini yuboring…",
     )
 
-COLLECT_MENU = ReplyKeyboardMarkup(
-    [["✅ Tayyor", "❌ Bekor"]],
-    resize_keyboard=True,
-    input_field_placeholder="Chekning qolgan qismlarini yuboring…",
-)
+def collect_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[i18n.btn(lang, "ready"), i18n.btn(lang, "cancel")]],
+        resize_keyboard=True,
+        input_field_placeholder="…",
+    )
 
 
 def entry_keyboard(tx_ids: list[int], kind: str | None = None) -> InlineKeyboardMarkup | None:
@@ -415,31 +435,86 @@ def _help_text() -> str:
     return HELP_TEXT
 
 
-@private_only
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    access = context.user_data.get("access") or {}
-    text = _help_text()
+FIRST_STEPS = [
+    ("obedga 45 ming", "Birinchi yozuv"),
+    ("taksi 20k, kofe 25 ming", "Bitta xabarda ikkita"),
+    ("oylik tushdi 8 mln", "Kirim yozish"),
+]
 
-    # Yangi foydalanuvchiga sinov muddatini darrov aytamiz — kutilmagan
-    # "muddat tugadi" xabari bilan to'qnashmasin.
-    if access.get("status") == "trial":
-        text += (
-            f"\n\n🎁 <b>Bepul sinov: {access['days_left']} kun qoldi.</b>\n"
-            "Holatni ko'rish: /holat"
+
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Birinchi tanishuv — qisqa. To'liq qo'llanma /qollanma da."""
+    user = update.effective_user
+    if user is None:
+        return
+
+    access = db.access_status(user.id, user.first_name or "", user.username)
+    context.user_data["access"] = access
+
+    # Taklif havolasi: /start ref12345
+    payload = (context.args or [""])[0] if context.args else ""
+    if payload:
+        await _apply_referral(update, context, payload)
+        access = db.access_status(user.id)
+
+    if not access["ok"]:
+        await _deny(update.effective_message, user, access)
+        return
+
+    lang = lang_of(user.id, context)
+    is_new = len(db.all_rows(user.id)) == 0
+    name = f", {reports.esc(user.first_name)}" if user.first_name else ""
+
+    if is_new:
+        # Yangi odamga uzun matn emas — bitta misol va bitta tugma.
+        await update.effective_message.reply_text(
+            i18n.t(lang, "welcome", name=name),
+            parse_mode=ParseMode.HTML,
+            reply_markup=main_menu(lang),
         )
-    elif access.get("status") == "subscribed":
+        await update.effective_message.reply_text(
+            i18n.t(lang, "try_prompt"),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton(f"«{example}»", callback_data=f"try:{i}")]
+                 for i, (example, _) in enumerate(FIRST_STEPS)]
+            ),
+        )
+        return
+
+    text = _help_text()
+    if access["status"] == "trial":
+        text += (f"\n\n🎁 <b>Bepul sinov: {access['days_left']} kun qoldi.</b>\n"
+                 "Tariflar: /obuna")
+    elif access["status"] == "subscribed":
         text += f"\n\n✅ <b>Obuna faol</b> — {access['days_left']} kun qoldi."
 
     await update.effective_message.reply_text(
-        text, parse_mode=ParseMode.HTML, reply_markup=main_menu()
+        text, parse_mode=ParseMode.HTML, reply_markup=main_menu(lang_of(update.effective_user.id, context))
     )
+
+
+async def on_try_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Onboarding tugmasi — misolni haqiqiy yozuvga aylantiradi."""
+    query = update.callback_query
+    try:
+        index = int((query.data or "try:0").split(":")[1])
+        example = FIRST_STEPS[index][0]
+    except (ValueError, IndexError):
+        await query.answer("Misol topilmadi")
+        return
+    await query.answer(example)
+    await query.edit_message_text(f"✍️ <i>{reports.esc(example)}</i>",
+                                  parse_mode=ParseMode.HTML)
+    # Xabarni foydalanuvchi o'zi yozgandek qayta ishlaymiz.
+    await _process_text(update, context, example)
 
 
 @private_only
 async def cmd_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for chunk in _split_message(GUIDE_TEXT):
+    lang = lang_of(update.effective_user.id, context)
+    for chunk in _split_message(i18n.cyr(lang, GUIDE_TEXT)):
         await update.effective_message.reply_text(
-            chunk, parse_mode=ParseMode.HTML, reply_markup=main_menu()
+            chunk, parse_mode=ParseMode.HTML, reply_markup=main_menu(lang_of(update.effective_user.id, context))
         )
 
 
@@ -461,9 +536,56 @@ def _period_command(period: str):
     @private_only
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = reports.summary_text(update.effective_user.id, period)
-        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+        # Oy va yil hisobotini rasm qilib ulashsa bo'ladi — do'stlarga
+        # ko'rsatiladigan natija botni o'zi reklama qiladi.
+        markup = None
+        if period in ("oy", "otgan_oy", "yil") and sharecard.available():
+            markup = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    i18n.t(lang_of(update.effective_user.id, context), "share_btn"),
+                    callback_data=f"share:{period}")
+            ]])
+        await update.effective_message.reply_text(
+            text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
     return handler
+
+
+async def on_share_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Davr hisobotini PNG qilib yuboradi."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    period = (query.data or "share:oy").split(":", 1)[1]
+
+    await query.answer("🖼")
+    start, end, label = reports.period_range(period)
+    by_cur = db.totals_by_currency(user_id, start, end)
+    # Asosiy valyuta — eng ko'p harakat bo'lgani.
+    currency = max(by_cur, key=lambda c: sum(by_cur[c].values()), default="som")
+    totals = by_cur.get(currency, {})
+    cats = db.by_category(user_id, start, end, config.KIND_CHIQIM, currency)
+    entries = len(db.list_range(user_id, start, end))
+
+    me = await context.bot.get_me()
+    png = await asyncio.to_thread(
+        sharecard.build,
+        title=label.capitalize(),
+        kirim=totals.get(config.KIND_KIRIM, 0),
+        chiqim=totals.get(config.KIND_CHIQIM, 0),
+        categories=cats,
+        currency=currency,
+        entries=entries,
+        bot_username=me.username or "",
+    )
+    if not png:
+        await query.answer("Rasm tayyorlab bo'lmadi", show_alert=True)
+        return
+
+    data = io.BytesIO(png)
+    data.name = "hisobot.png"
+    await context.bot.send_photo(
+        query.message.chat_id, data,
+        caption=i18n.t(lang_of(user_id, context), "share_caption"))
 
 
 @private_only
@@ -506,7 +628,13 @@ async def cmd_settle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @private_only
 async def cmd_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    rows = db.all_rows(update.effective_user.id)
+    await _send_csv(update, context, update.effective_user.id)
+
+
+async def _send_csv(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                    user_id: int) -> None:
+    """CSV faylni yuboradi. /csv va hisobni o'chirishdan oldin ishlatiladi."""
+    rows = db.all_rows(user_id)
     if not rows:
         await update.effective_message.reply_text("Eksport qilish uchun yozuv yo'q.")
         return
@@ -597,6 +725,11 @@ _collect = TTLStore(ttl_seconds=1800, max_items=200)
 # Oxirgi chek — «davomi bor» tugmasi uchun: user_id -> {"receipt_id", "images", "caption"}
 # Qisqa muddat: bu faqat "davomi bor" tugmasi uchun kerak, uzoq saqlash shart emas.
 _last_receipt = TTLStore(ttl_seconds=900, max_items=100)
+# To'lov cheki kutilayotgan foydalanuvchilar: user_id -> so'rov ID.
+# 2 soat — odam kartaga o'tkazib, chekni topib yuborishga yetadi.
+_awaiting_proof = TTLStore(ttl_seconds=7200, max_items=500)
+# Hisobni o'chirishni tasdiqlash kutilmoqda: user_id -> True (5 daqiqa)
+_awaiting_erase = TTLStore(ttl_seconds=300, max_items=100)
 
 
 class ImageError(Exception):
@@ -691,6 +824,7 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
 
     receipt_id = uuid.uuid4().hex[:10]
     shop = data["dokon"]
+    currency = data.get("valyuta") or "som"
     db.add_many([
         {
             "user_id": user_id,
@@ -702,6 +836,7 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
             "occurred_on": data["sana"],
             "raw_text": f"chek: {shop}" if shop else "chek",
             "receipt_id": receipt_id,
+            "currency": currency,
         }
         for item in data["mahsulotlar"]
     ])
@@ -734,11 +869,25 @@ async def _flush_album(key: str, update: Update, context):
     await _process_receipt(update, context, bucket["images"], bucket["caption"])
 
 
-@private_only
 async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
-    user_id = update.effective_user.id
+    user = update.effective_user
+    if user is None or message is None:
+        return
+    user_id = user.id
     caption = message.caption or ""
+
+    # To'lov cheki kirish chegarasidan OLDIN tekshiriladi: muddati tugagan
+    # foydalanuvchi ham to'lovni tasdiqlay olishi kerak.
+    if await handle_payment_proof(update, context):
+        return
+
+    # Limit _process_receipt ichida hisoblanadi — bu yerda faqat kirish.
+    access = db.access_status(user_id, user.first_name or "", user.username)
+    context.user_data["access"] = access
+    if not access["ok"]:
+        await _deny(message, user, access)
+        return
 
     try:
         image = await _download_receipt_file(context, message)
@@ -759,7 +908,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await message.reply_text(
             f"✅ {len(bucket['images'])}-qism qabul qilindi.\n"
             "Yana yuboring yoki «✅ Tayyor» bosing.",
-            reply_markup=COLLECT_MENU,
+            reply_markup=collect_menu(lang_of(update.effective_user.id, context)),
         )
         return
 
@@ -789,7 +938,7 @@ async def cmd_collect_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "bo'ladi — takroriy qatorlar bir marta hisoblanadi.\n\n"
         "Hammasi tayyor bo'lgach «✅ Tayyor» bosing.",
         parse_mode=ParseMode.HTML,
-        reply_markup=COLLECT_MENU,
+        reply_markup=collect_menu(lang_of(update.effective_user.id, context)),
     )
 
 
@@ -798,11 +947,11 @@ async def cmd_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bucket = _collect.pop(update.effective_user.id, None)
     if not bucket or not bucket["images"]:
         await update.effective_message.reply_text(
-            "Hech qanday rasm yuborilmadi.", reply_markup=main_menu()
+            "Hech qanday rasm yuborilmadi.", reply_markup=main_menu(lang_of(update.effective_user.id, context))
         )
         return
     await update.effective_message.reply_text(
-        f"📥 {len(bucket['images'])} ta qism qabul qilindi.", reply_markup=main_menu()
+        f"📥 {len(bucket['images'])} ta qism qabul qilindi.", reply_markup=main_menu(lang_of(update.effective_user.id, context))
     )
     await _process_receipt(update, context, bucket["images"], bucket["caption"])
 
@@ -810,7 +959,7 @@ async def cmd_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @private_only
 async def cmd_collect_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _collect.pop(update.effective_user.id, None)
-    await update.effective_message.reply_text("Bekor qilindi.", reply_markup=main_menu())
+    await update.effective_message.reply_text("Bekor qilindi.", reply_markup=main_menu(lang_of(update.effective_user.id, context)))
 
 
 # --------------------------------------------------------------------------- #
@@ -835,6 +984,17 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await action(update, context)
         return
 
+    await _process_text(update, context, text, message)
+
+
+async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        text: str, message=None) -> None:
+    """Matnli yozuvni tahlil qilib saqlaydi.
+
+    `message` — javob yoziladigan xabar. Onboarding tugmasidan
+    chaqirilganda bu callback xabari bo'ladi.
+    """
+    message = message or update.effective_message
     user_id = update.effective_user.id
 
     # «Uzun chek» rejimida yozilgan matn — chek uchun izoh.
@@ -842,7 +1002,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _collect.get(user_id)["caption"] = text
         await message.reply_text(
             "📝 Izoh saqlandi. Chek qismlarini yuborishda davom eting.",
-            reply_markup=COLLECT_MENU,
+            reply_markup=collect_menu(lang_of(update.effective_user.id, context)),
         )
         return
 
@@ -924,6 +1084,12 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=entry_keyboard(saved_ids, single_kind),
     )
 
+    # Byudjet oshdimi? Faqat shu yozuvga tegishli kategoriyalarni tekshiramiz.
+    touched = {item["kategoriya"] for item in parsed["yozuvlar"]
+               if item["turi"] == config.KIND_CHIQIM}
+    if touched:
+        await check_budget_alerts(context, user_id, touched)
+
 
 # --------------------------------------------------------------------------- #
 # Tugmalar
@@ -951,10 +1117,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     data = query.data or ""
 
-    # Obuna tugmalari kirish chegarasidan OLDIN keladi — muddati tugagan
-    # foydalanuvchi ham tarifni tanlay olishi kerak.
+    # Obuna va hisobni o'chirish tugmalari kirish chegarasidan OLDIN keladi —
+    # muddati tugagan foydalanuvchi ham to'lov qila olishi va ma'lumotini
+    # o'chira olishi kerak.
     if data.startswith(("sub:", "subok:", "subno:")):
         await on_subscription_callback(update, context)
+        return
+    if data.startswith("erase:"):
+        await on_erase_callback(update, context)
+        return
+    if data.startswith("lang:"):
+        await on_lang_callback(update, context)
         return
 
     # Boshqa hamma tugma uchun bot bilan bir xil kirish qoidasi.
@@ -964,6 +1137,16 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Obuna muddati tugagan." if access["status"] == "expired" else "Ruxsat yo'q.",
             show_alert=True,
         )
+        return
+
+    if data.startswith("rem:"):
+        await on_reminder_callback(update, context)
+        return
+    if data.startswith("share:"):
+        await on_share_callback(update, context)
+        return
+    if data.startswith("try:"):
+        await on_try_callback(update, context)
         return
 
     if data.startswith("d:"):
@@ -1105,7 +1288,7 @@ def _fmt_price(amount: int) -> str:
     return f"{amount:,}".replace(",", " ") + " so'm"
 
 
-def plans_keyboard() -> InlineKeyboardMarkup:
+def plans_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     rows = []
     for p in config.SUBSCRIPTION_PLANS:
         disc = config.plan_discount_percent(p)
@@ -1119,44 +1302,26 @@ def plans_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def plans_text(access: dict | None = None) -> str:
-    lines = ["💎 <b>Obuna tariflari</b>", ""]
+def plans_text(access: dict | None = None, lang: str = "uz") -> str:
+    lines = [i18n.t(lang, "plans_title"), ""]
 
     status = (access or {}).get("status")
     if status == "trial":
-        lines += [
-            f"🎁 Bepul sinovingiz faol — <b>{access['days_left']} kun</b> qoldi.",
-            "<i>Hoziroq obuna bo'lsangiz, qolgan bepul kunlar yo'qolmaydi — "
-            "obuna muddati ularning ustiga qo'shiladi.</i>",
-            "",
-        ]
+        lines += [i18n.t(lang, "plans_trial", days=access["days_left"]), ""]
     elif status == "subscribed":
-        lines += [
-            f"✅ Obunangiz faol — <b>{access['days_left']} kun</b> qoldi.",
-            "<i>Uzaytirsangiz, yangi muddat mavjudining ustiga qo'shiladi.</i>",
-            "",
-        ]
+        lines += [i18n.t(lang, "plans_active", days=access["days_left"]), ""]
 
     for p in config.SUBSCRIPTION_PLANS:
         disc = config.plan_discount_percent(p)
-        per_month = config.plan_monthly_price(p)
         line = f"<b>{p['label']}</b> — {_fmt_price(p['price'])}"
         if disc:
-            line += f"  <b>({disc}% tejash)</b>"
+            line += "  <b>(" + i18n.t(lang, "plan_save", pct=disc) + ")</b>"
         lines.append(line)
         if p["months"] > 1:
-            lines.append(f"    <i>oyiga {_fmt_price(per_month)}</i>")
+            per = _fmt_price(config.plan_monthly_price(p))
+            lines.append("    <i>" + i18n.t(lang, "plan_month_price", price=per) + "</i>")
 
-    lines += [
-        "",
-        "<b>Obunada nima bor:</b>",
-        "• Cheksiz matnli yozuv va chek o'qish",
-        "• Grafik boshqaruv paneli",
-        "• Savol-javob va barcha hisobotlar",
-        "• CSV eksport",
-        "",
-        "Kerakli tarifni tanlang — so'rovingiz adminga yuboriladi.",
-    ]
+    lines += ["", i18n.t(lang, "plans_includes"), "", i18n.t(lang, "plans_pick")]
     return "\n".join(lines)
 
 
@@ -1167,33 +1332,55 @@ async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user is None:
         return
     access = db.access_status(user.id, user.first_name or "", user.username)
+    lang = lang_of(user.id, context)
 
     if access["status"] == "owner":
         await update.effective_message.reply_text(
-            "👑 Siz bot egasisiz — obuna kerak emas, cheksiz foydalanasiz.\n\n"
-            + plans_text(),
+            i18n.t(lang, "owner_no_sub") + "\n\n" + plans_text(lang=lang),
             parse_mode=ParseMode.HTML,
         )
         return
 
     await update.effective_message.reply_text(
-        plans_text(access), parse_mode=ParseMode.HTML, reply_markup=plans_keyboard()
+        plans_text(access, lang), parse_mode=ParseMode.HTML,
+        reply_markup=plans_keyboard(lang)
     )
 
 
-async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Foydalanuvchi tarif tanladi.
+def payment_text(plan: dict, lang: str = "uz") -> str:
+    """Karta rekvizitlari va to'lov yo'riqnomasi."""
+    contact = reports.esc(_support_contact())
+    price = _fmt_price(plan["price"])
+    if not config.card_ready():
+        return i18n.t(lang, "pay_no_card", plan=plan["label"], price=price,
+                      contact=contact)
+    bank = f"\n🏦 {reports.esc(config.CARD_BANK)}" if config.CARD_BANK else ""
+    return (i18n.t(lang, "pay_title") + "\n\n"
+            + i18n.t(lang, "pay_body", plan=plan["label"], price=price,
+                     card=reports.esc(config.card_pretty()),
+                     holder=reports.esc(config.CARD_HOLDER), bank=bank,
+                     contact=contact))
 
-    Tasdiqlash bot ichida emas, admin web panelda amalga oshiriladi —
-    shu sabab bu yerda faqat so'rov yoziladi va egaga bildirishnoma boradi.
+
+async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchi tarif tanladi — karta rekvizitlari ko'rsatiladi.
+
+    Tasdiqlash bot ichida emas, admin web panelda amalga oshiriladi.
     """
     query = update.callback_query
     user = update.effective_user
     data = query.data or ""
 
+    lang = lang_of(user.id, context)
+
+    if data == "sub:bekor":
+        _awaiting_proof.pop(user.id, None)
+        await query.answer("OK")
+        await query.edit_message_text(i18n.t(lang, "pay_cancelled"))
+        return
+
     if not data.startswith("sub:"):
-        # Eski xabarlardagi tasdiqlash tugmalari — endi ishlatilmaydi.
-        await query.answer("Bu tugma endi ishlamaydi. Admin panelidan foydalaning.",
+        await query.answer("Bu tugma endi ishlamaydi. /obuna dan qayta boshlang.",
                            show_alert=True)
         return
 
@@ -1202,15 +1389,18 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer("Tarif topilmadi", show_alert=True)
         return
 
-    db.add_subscription_request(user.id, plan["code"], plan["price"])
-    await query.answer("So'rov yuborildi ✅")
+    request_id = db.add_subscription_request(user.id, plan["code"], plan["price"])
+    # Endi shu foydalanuvchidan keladigan rasm chek deb qabul qilinadi.
+    _awaiting_proof.set(user.id, request_id)
+
+    await query.answer("💳")
     await query.edit_message_text(
-        f"📨 <b>So'rovingiz qabul qilindi</b>\n\n"
-        f"Tarif: <b>{plan['label']}</b> — {_fmt_price(plan['price'])}\n\n"
-        f"To'lov bo'yicha {reports.esc(_support_contact())} ga yozing. "
-        f"To'lov tasdiqlangach obunangiz avtomatik faollashadi va sizga "
-        f"xabar keladi.",
+        payment_text(plan, lang),
         parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(i18n.t(lang, "erase_btn_no"),
+                                 callback_data="sub:bekor")
+        ]]),
     )
 
     uname = f"@{user.username}" if user.username else "(username yo'q)"
@@ -1219,7 +1409,8 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
         f"👤 {reports.esc(user.first_name or '')} {reports.esc(uname)}\n"
         f"🆔 <code>{user.id}</code>\n"
         f"💎 {plan['label']} — {_fmt_price(plan['price'])}\n\n"
-        f"Tasdiqlash: {config.ADMIN_PANEL_URL or 'admin panel'}"
+        f"<i>To'lov cheki kutilmoqda.</i>\n"
+        f"{config.ADMIN_PANEL_URL or 'admin panel'}/sorovlar"
     )
     for owner in config.OWNER_IDS:
         try:
@@ -1227,6 +1418,461 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
                                            disable_web_page_preview=True)
         except Exception:
             log.warning("Adminga bildirishnoma yuborilmadi: %s", owner)
+
+
+async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Kutilayotgan to'lov chekini qabul qiladi. Qabul qilinsa True qaytaradi.
+
+    Kirish chegarasidan TASHQARIDA chaqiriladi — muddati tugagan
+    foydalanuvchi ham to'lov chekini yubora olishi kerak.
+    """
+    user = update.effective_user
+    message = update.effective_message
+    request_id = _awaiting_proof.get(user.id)
+    if request_id is None:
+        return False
+
+    photo = message.photo[-1] if message.photo else None
+    file_id = photo.file_id if photo else (
+        message.document.file_id if message.document else None)
+    if not file_id:
+        return False
+
+    req = db.get_request(request_id)
+    if req is None or req["status"] not in ("kutilmoqda", "tekshiruvda"):
+        _awaiting_proof.pop(user.id, None)
+        await message.reply_text(i18n.t(lang_of(user.id, context), "proof_stale"))
+        return True
+
+    db.attach_payment_proof(request_id, file_id)
+    _awaiting_proof.pop(user.id, None)
+
+    plan = config.plan_by_code(req["plan_code"])
+    label = plan["label"] if plan else req["plan_code"]
+    await message.reply_text(
+        i18n.t(lang_of(user.id, context), "proof_received", plan=label,
+               price=_fmt_price(req["price"])),
+        parse_mode=ParseMode.HTML,
+    )
+
+    uname = f"@{user.username}" if user.username else "(username yo'q)"
+    caption = (
+        "💳 <b>To'lov cheki keldi</b>\n\n"
+        f"👤 {reports.esc(user.first_name or '')} {reports.esc(uname)}\n"
+        f"🆔 <code>{user.id}</code>\n"
+        f"💎 {label} — {_fmt_price(req['price'])}\n\n"
+        f"Tasdiqlash: {config.ADMIN_PANEL_URL or 'admin panel'}/sorovlar"
+    )
+    for owner in config.OWNER_IDS:
+        try:
+            await context.bot.send_photo(owner, file_id, caption=caption,
+                                         parse_mode=ParseMode.HTML)
+        except Exception:
+            log.warning("Adminga chek yuborilmadi: %s", owner)
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# Ma'lumot huquqlari: maxfiylik va hisobni o'chirish
+# --------------------------------------------------------------------------- #
+
+PRIVACY_TEXT = """🔒 <b>MAXFIYLIK SIYOSATI</b>
+
+<b>Qanday ma'lumot saqlanadi</b>
+• Telegram ID, ismingiz va username
+• Siz yozgan xarajat/kirim yozuvlari: summa, kategoriya, izoh, sana
+• Qarz yozuvlarida siz ko'rsatgan shaxs ismi
+• Obuna muddati va to'lov tarixi
+
+<b>Chek rasmlari</b>
+Chek suratini yuborsangiz, u <b>faqat o'qish uchun</b> Anthropic (AQSh)
+serveriga yuboriladi. Rasm bizda ham, u yerda ham saqlanmaydi —
+o'qilgandan keyin darhol o'chadi. Faqat undan chiqqan <b>matnli
+yozuvlar</b> sizning bazangizda qoladi.
+
+Yozgan matnlaringiz ham xuddi shu tarzda tahlil uchun yuboriladi.
+Anthropic bu ma'lumotni modelni o'qitishga ishlatmaydi.
+
+<b>Kim ko'ra oladi</b>
+• Siz — bot va boshqaruv paneli orqali
+• Texnik xizmat ko'rsatuvchi administrator — nosozlikni tuzatish uchun
+• Boshqa foydalanuvchilar sizning ma'lumotingizni <b>hech qachon</b>
+  ko'rmaydi. Har bir yozuv Telegram ID bo'yicha ajratilgan.
+
+<b>Qayerda saqlanadi</b>
+O'zbekistondan tashqaridagi ijaraga olingan serverda, kirish faqat
+kalit orqali. Har kuni shifrlangan zaxira nusxa olinadi.
+
+<b>Sizning huquqlaringiz</b>
+• /csv — barcha ma'lumotingizni fayl qilib olish
+• /ochirish — hisobni va butun tarixni butunlay o'chirish
+  (darhol va qaytarib bo'lmaydigan tarzda)
+
+<b>To'lov</b>
+Karta ma'lumotlaringiz bizga kelmaydi. Siz o'zingiz o'tkazma qilasiz
+va faqat chek skrinshotini yuborasiz.
+
+Savol: {contact}"""
+
+
+async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Interfeys tilini tanlash. Kirish chegarasidan tashqarida —
+    muddati tugagan foydalanuvchi ham tilni o'zgartira olishi kerak."""
+    user = update.effective_user
+    if user is None:
+        return
+    db.get_or_create_user(user.id, user.first_name or "", user.username)
+    lang = lang_of(user.id, context)
+    await update.effective_message.reply_text(
+        i18n.t(lang, "lang_choose"),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(label, callback_data=f"lang:{code}")]
+            for code, label in i18n.LANGS.items()
+        ]),
+    )
+
+
+async def on_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = update.effective_user
+    code = i18n.normalize((query.data or "lang:uz").split(":")[1])
+    db.set_lang(user.id, code)
+    context.user_data["_lang"] = code
+    await query.answer(i18n.LANGS[code])
+    await query.edit_message_text(i18n.t(code, "lang_set"))
+    # Klaviatura yangi tilda qayta chiziladi.
+    await context.bot.send_message(
+        query.message.chat_id, i18n.btn(code, "guide") + " · /qollanma",
+        reply_markup=main_menu(code))
+
+
+async def cmd_privacy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maxfiylik siyosati — kirish chegarasidan tashqarida."""
+    lang = lang_of(update.effective_user.id, context)
+    await update.effective_message.reply_text(
+        i18n.cyr(lang, PRIVACY_TEXT).format(contact=reports.esc(_support_contact())),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+
+async def cmd_erase(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Hisobni o'chirish — ikki bosqichli tasdiqlash bilan."""
+    user = update.effective_user
+    if user is None:
+        return
+    rows = len(db.all_rows(user.id))
+    lang = lang_of(user.id, context)
+    _awaiting_erase.set(user.id, True)
+    await update.effective_message.reply_text(
+        i18n.t(lang, "erase_confirm", n=rows),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(i18n.t(lang, "erase_btn_csv"),
+                                  callback_data="erase:csv")],
+            [InlineKeyboardButton(i18n.t(lang, "erase_btn_yes"),
+                                  callback_data="erase:ha")],
+            [InlineKeyboardButton(i18n.t(lang, "erase_btn_no"),
+                                  callback_data="erase:yoq")],
+        ]),
+    )
+
+
+async def on_erase_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = update.effective_user
+    data = query.data or ""
+
+    lang = lang_of(user.id, context)
+
+    if data == "erase:yoq":
+        _awaiting_erase.pop(user.id, None)
+        await query.answer("OK")
+        await query.edit_message_text(i18n.t(lang, "erase_cancelled"))
+        return
+
+    if data == "erase:csv":
+        await query.answer("CSV")
+        await _send_csv(update, context, user.id)
+        await query.edit_message_text("📤 /ochirish")
+        _awaiting_erase.pop(user.id, None)
+        return
+
+    if data == "erase:ha":
+        if not _awaiting_erase.get(user.id):
+            await query.answer(i18n.t(lang, "erase_expired"), show_alert=True)
+            return
+        _awaiting_erase.pop(user.id, None)
+        stats = db.erase_user(user.id)
+        await query.answer("🗑")
+        await query.edit_message_text(
+            i18n.t(lang, "erase_done", n=stats["transactions"]),
+            parse_mode=ParseMode.HTML)
+        log.info("Foydalanuvchi o'z hisobini o'chirdi: %s", user.id)
+        return
+
+
+# --------------------------------------------------------------------------- #
+# Referal — do'st taklif qilish
+# --------------------------------------------------------------------------- #
+
+@private_only
+async def cmd_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    lang = lang_of(user.id, context)
+    stats = db.referral_stats(user.id)
+    me = await context.bot.get_me()
+    link = f"https://t.me/{me.username}?start=ref{user.id}"
+
+    share = quote(i18n.t(lang, "referral_share_text"))
+    share_url = f"https://t.me/share/url?url={quote(link)}&text={share}"
+
+    await update.effective_message.reply_text(
+        i18n.t(lang, "referral", bonus=config.REFERRAL_BONUS_DAYS, link=link,
+               invited=stats["invited"], bonus_days=stats["bonus_days"]),
+        parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True,
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(i18n.t(lang, "referral_share_btn"), url=share_url)
+        ]]),
+    )
+
+
+async def _apply_referral(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                          payload: str) -> None:
+    """/start ref<id> — taklif qilganni qayd etadi va ikkalasiga bonus beradi."""
+    user = update.effective_user
+    if not payload.startswith("ref"):
+        return
+    raw = payload[3:]
+    if not raw.isdigit():
+        return
+    referrer_id = int(raw)
+    if not db.set_referrer(user.id, referrer_id):
+        return
+
+    bonus = config.REFERRAL_BONUS_DAYS
+    db.add_bonus_days(user.id, bonus)
+    db.add_bonus_days(referrer_id, bonus)
+    log.info("Referal: %s -> %s (+%s kun)", referrer_id, user.id, bonus)
+
+    await update.effective_message.reply_text(
+        i18n.t(lang_of(user.id, context), "referral_welcome", bonus=bonus),
+        parse_mode=ParseMode.HTML)
+    try:
+        await context.bot.send_message(
+            referrer_id,
+            i18n.t(lang_of(referrer_id), "referral_thanks",
+                   name=reports.esc(user.first_name or "?"), bonus=bonus),
+            parse_mode=ParseMode.HTML)
+    except Exception:
+        log.info("Referal xabari yuborilmadi: %s", referrer_id)
+
+
+# --------------------------------------------------------------------------- #
+# Byudjet
+# --------------------------------------------------------------------------- #
+
+_MULTIPLIERS = {
+    "ming": 1_000, "k": 1_000, "минг": 1_000,
+    "mln": 1_000_000, "million": 1_000_000, "mil": 1_000_000,
+    "lim": 1_000_000, "m": 1_000_000, "млн": 1_000_000,
+    "mlrd": 1_000_000_000, "milliard": 1_000_000_000,
+}
+
+
+def _parse_amount_uz(text: str) -> float | None:
+    """«2 mln», «500 ming», «1 200 000», «20k» → son.
+
+    AI'ga murojaat qilmaydi — byudjet buyrug'i tez va tekin bo'lishi kerak.
+    """
+    raw = (text or "").lower().replace(" ", " ").strip()
+    if not raw:
+        return None
+    # Sonni va undan keyingi birlikni ajratamiz.
+    number = ""
+    rest = ""
+    for i, ch in enumerate(raw):
+        if ch.isdigit() or ch in ".,":
+            number += "." if ch == "," else ch
+        elif ch == " " and number and raw[i + 1:i + 2].isdigit():
+            continue          # «1 200 000» ichidagi bo'sh joy
+        elif number:
+            rest = raw[i:].strip()
+            break
+    if not number:
+        return None
+    try:
+        value = float(number)
+    except ValueError:
+        return None
+
+    unit = rest.split()[0].strip(".") if rest else ""
+    if unit in _MULTIPLIERS:
+        return value * _MULTIPLIERS[unit]
+    # Birliksiz kichik son ming deb olinadi — matn yozuvlaridagi qoida bilan bir xil.
+    if config.SMALL_NUMBERS_ARE_THOUSANDS and value < 1000:
+        return value * 1000
+    return value
+
+
+@private_only
+async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/byudjet — ro'yxat; /byudjet <kategoriya> <summa> — o'rnatish."""
+    user_id = update.effective_user.id
+    args = context.args or []
+    msg = update.effective_message
+
+    if args:
+        if args[-1].lower() in ("o'chir", "ochir", "0"):
+            category = config.normalize_category(
+                config.KIND_CHIQIM, " ".join(args[:-1]))
+            ok = db.delete_budget(user_id, category)
+            await msg.reply_text(
+                f"🗑 «{category}» byudjeti o'chirildi." if ok
+                else f"«{category}» uchun byudjet yo'q edi.")
+            return
+
+        amount = _parse_amount_uz(args[-1])
+        category = config.normalize_category(config.KIND_CHIQIM, " ".join(args[:-1]))
+        if not amount or amount <= 0:
+            await msg.reply_text(
+                "Summani tushunmadim.\n\n"
+                "Masalan: <code>/byudjet oziq-ovqat 2 mln</code>",
+                parse_mode=ParseMode.HTML)
+            return
+        db.set_budget(user_id, category, amount)
+        await msg.reply_text(
+            f"✅ <b>{category}</b> uchun oylik byudjet: "
+            f"<b>{reports.fmt_money(amount, 'som')}</b>\n\n"
+            f"80% va 100% ga yetganda ogohlantiraman.",
+            parse_mode=ParseMode.HTML)
+        return
+
+    rows = db.budget_status(user_id)
+    if not rows:
+        cats = ", ".join(config.EXPENSE_CATEGORIES[:6])
+        await msg.reply_text(
+            "💰 <b>Oylik byudjet</b>\n\n"
+            "Kategoriyaga oylik chegara qo'ying — oshib ketsa ogohlantiraman.\n\n"
+            "<b>O'rnatish:</b>\n"
+            "<code>/byudjet oziq-ovqat 2 mln</code>\n"
+            "<code>/byudjet transport 500 ming</code>\n\n"
+            "<b>O'chirish:</b>\n"
+            "<code>/byudjet transport o'chir</code>\n\n"
+            f"<i>Kategoriyalar: {cats} …</i>",
+            parse_mode=ParseMode.HTML)
+        return
+
+    lines = ["💰 <b>Shu oylik byudjet</b>", ""]
+    for r in rows:
+        pct = r["percent"]
+        bar_len = 10
+        filled = min(bar_len, int(round(pct / 100 * bar_len)))
+        bar = "█" * filled + "░" * (bar_len - filled)
+        icon = "🔴" if pct >= 100 else ("🟡" if pct >= 80 else "🟢")
+        lines.append(f"{icon} <b>{r['category']}</b>")
+        lines.append(
+            f"    {bar} {pct:.0f}%\n"
+            f"    {reports.fmt_money(r['spent'], r['currency'])} / "
+            f"{reports.fmt_money(r['limit'], r['currency'])}")
+        if r["left"] >= 0:
+            lines.append(f"    qoldi: {reports.fmt_money(r['left'], r['currency'])}")
+        else:
+            lines.append(f"    ⚠️ oshib ketdi: "
+                         f"{reports.fmt_money(-r['left'], r['currency'])}")
+        lines.append("")
+    lines.append("<i>O'zgartirish: /byudjet &lt;kategoriya&gt; &lt;summa&gt;</i>")
+    await msg.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def check_budget_alerts(context: ContextTypes.DEFAULT_TYPE, user_id: int,
+                              categories: set[str]) -> None:
+    """Yozuv qo'shilgandan keyin byudjet oshganini tekshiradi.
+
+    Har daraja (80% va 100%) oyiga bir marta ogohlantiradi — aks holda
+    har yozuvda xabar kelib bezdirardi.
+    """
+    month = datetime.now(config.TZ).strftime("%Y-%m")
+    for r in db.budget_status(user_id):
+        if r["category"] not in categories:
+            continue
+        level = 100 if r["percent"] >= 100 else (80 if r["percent"] >= 80 else 0)
+        if not level:
+            continue
+        tag = f"{month}:{level}"
+        already = r["notified"]
+        if already == tag or (already.startswith(month) and
+                              already.endswith(":100")):
+            continue
+        db.mark_budget_notified(user_id, r["category"], r["currency"], tag)
+        if level == 100:
+            text = (f"🔴 <b>{r['category']}</b> byudjeti oshib ketdi!\n\n"
+                    f"Sarflandi: {reports.fmt_money(r['spent'], r['currency'])}\n"
+                    f"Chegara: {reports.fmt_money(r['limit'], r['currency'])}\n"
+                    f"Oshgan: {reports.fmt_money(-r['left'], r['currency'])}")
+        else:
+            text = (f"🟡 <b>{r['category']}</b> byudjetining "
+                    f"{r['percent']:.0f}% i sarflandi.\n\n"
+                    f"Qoldi: {reports.fmt_money(r['left'], r['currency'])}")
+        try:
+            await context.bot.send_message(user_id, text, parse_mode=ParseMode.HTML)
+        except Exception:
+            log.info("Byudjet ogohlantirishi yuborilmadi: %s", user_id)
+
+
+# --------------------------------------------------------------------------- #
+# Eslatma sozlamasi
+# --------------------------------------------------------------------------- #
+
+@private_only
+async def cmd_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/eslatma 21 — har kuni soat 21:00 da; /eslatma o'chir — bekor."""
+    user_id = update.effective_user.id
+    args = context.args or []
+    msg = update.effective_message
+
+    lang = lang_of(user_id, context)
+
+    if args:
+        raw = args[0].lower()
+        if raw in ("o'chir", "ochir", "yoq", "0", "выкл", "off"):
+            db.set_reminder_hour(user_id, None)
+            await msg.reply_text(i18n.t(lang, "reminder_off"))
+            return
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if digits and 0 <= int(digits) <= 23:
+            hour = int(digits)
+            db.set_reminder_hour(user_id, hour)
+            await msg.reply_text(i18n.t(lang, "reminder_on", hour=f"{hour:02d}"),
+                                 parse_mode=ParseMode.HTML)
+            return
+        await msg.reply_text(i18n.t(lang, "reminder_bad_hour"))
+        return
+
+    current = db.get_reminder_hour(user_id)
+    if current is None:
+        await msg.reply_text(
+            i18n.t(lang, "reminder_intro"),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔔 20:00", callback_data="rem:20"),
+                InlineKeyboardButton("🔔 21:00", callback_data="rem:21"),
+                InlineKeyboardButton("🔔 22:00", callback_data="rem:22"),
+            ]]))
+    else:
+        await msg.reply_text(i18n.t(lang, "reminder_on", hour=f"{current:02d}"),
+                             parse_mode=ParseMode.HTML)
+
+
+async def on_reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    hour = int((query.data or "rem:21").split(":")[1])
+    db.set_reminder_hour(update.effective_user.id, hour)
+    await query.answer("🔔")
+    await query.edit_message_text(
+        i18n.t(lang_of(update.effective_user.id, context), "reminder_on",
+               hour=f"{hour:02d}"),
+        parse_mode=ParseMode.HTML)
 
 
 async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1252,36 +1898,35 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     access = context.user_data.get("access") or db.access_status(user_id)
 
+    lang = lang_of(user_id, context)
+
     if access["status"] == "owner":
-        head = "👑 <b>Bot egasi</b> — cheksiz foydalanish"
+        head = i18n.t(lang, "status_owner")
     elif access["status"] == "subscribed":
-        head = (f"✅ <b>Obuna faol</b>\n"
-                f"Tugash sanasi: {_fmt_dt(access['until'])} "
-                f"({access['days_left']} kun qoldi)")
+        head = i18n.t(lang, "status_sub", until=_fmt_dt(access["until"]),
+                      days=access["days_left"])
     else:
-        head = (f"🎁 <b>Bepul sinov</b>\n"
-                f"Tugash sanasi: {_fmt_dt(access['until'])} "
-                f"({access['days_left']} kun qoldi)")
+        head = i18n.t(lang, "status_trial", until=_fmt_dt(access["until"]),
+                      days=access["days_left"])
 
     lines = [head, ""]
 
     if access["status"] != "owner":
-        lines.append("<b>Bugungi limitlar:</b>")
+        lines.append(i18n.t(lang, "status_limits"))
         for op, (limit, label) in LIMITS.items():
             used = db.count_today(user_id, op)
             lines.append(f"  {label}: {used} / {limit}")
         lines.append("")
 
     n = len(db.all_rows(user_id))
-    lines.append(f"📒 Bazangizda {n} ta yozuv bor.")
+    lines.append(i18n.t(lang, "status_rows", n=n))
 
     # Ega bo'lmaganlarga tariflar shu yerdan ham ochiladi — sinov davri
     # faol bo'lsa ham obuna sotib olish mumkin.
     kb = None
     if access["status"] != "owner":
-        lines += ["", "<i>Obunani hoziroq uzaytirsangiz, qolgan kunlar "
-                      "yo'qolmaydi — ustiga qo'shiladi.</i>"]
-        kb = plans_keyboard()
+        lines += ["", i18n.t(lang, "status_extend_hint")]
+        kb = plans_keyboard(lang)
 
     await update.effective_message.reply_text(
         "\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=kb)
@@ -1295,6 +1940,92 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     log.exception("Handler xatoligi", exc_info=context.error)
+
+
+# --------------------------------------------------------------------------- #
+# Rejalashtirilgan vazifalar
+# --------------------------------------------------------------------------- #
+
+async def job_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Har soatda ishlaydi va shu soatga eslatma buyurganlarga xabar yuboradi."""
+    hour = datetime.now(config.TZ).hour
+    users = db.users_for_reminder(hour)
+    if not users:
+        return
+    today = reports.today()
+    sent = 0
+    for user_id in users:
+        try:
+            lang = lang_of(user_id)
+            s = db.day_summary(user_id, today)
+            if s["count"]:
+                parts = []
+                for cur, amount in s["chiqim"].items():
+                    parts.append("−" + reports.fmt_money(amount, cur))
+                for cur, amount in s["kirim"].items():
+                    parts.append("+" + reports.fmt_money(amount, cur))
+                text = i18n.t(lang, "daily_summary", n=s["count"],
+                              parts=" · ".join(parts))
+            else:
+                text = i18n.t(lang, "daily_empty")
+            await context.bot.send_message(user_id, text, parse_mode=ParseMode.HTML)
+            sent += 1
+        except Exception:
+            log.info("Eslatma yuborilmadi: %s", user_id)
+        await asyncio.sleep(0.06)      # Telegram cheklovi
+    log.info("Kunlik eslatma: %s ta yuborildi (soat %s)", sent, hour)
+
+
+async def job_expiry_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Muddati tugayotganlarni ogohlantiradi — konversiyaning asosiy manbai."""
+    rows = db.users_expiring((3, 1))
+    if not rows:
+        return
+    sent = 0
+    for r in rows:
+        user_id = r["user_id"]
+        try:
+            lang = lang_of(user_id)
+            total = len(db.all_rows(user_id))
+            if r["kind"] == "sinov":
+                head = (i18n.t(lang, "expiry_trial", days=r["days_left"])
+                        if r["days_left"] > 0
+                        else i18n.t(lang, "expiry_trial_today"))
+                body = i18n.t(lang, "expiry_trial_body", n=total)
+            else:
+                head = (i18n.t(lang, "expiry_sub", days=r["days_left"])
+                        if r["days_left"] > 0
+                        else i18n.t(lang, "expiry_sub_today"))
+                body = i18n.t(lang, "expiry_sub_body")
+            await context.bot.send_message(
+                user_id, f"{head}\n\n{body}", parse_mode=ParseMode.HTML,
+                reply_markup=plans_keyboard(lang))
+            db.mark_warned(user_id, r["stage"])
+            sent += 1
+        except Exception:
+            log.info("Ogohlantirish yuborilmadi: %s", user_id)
+        await asyncio.sleep(0.06)
+    log.info("Muddat ogohlantirishi: %s ta yuborildi", sent)
+
+
+def schedule_jobs(app: Application) -> None:
+    """Vaqtga bog'liq vazifalarni ro'yxatga oladi."""
+    jq = app.job_queue
+    if jq is None:
+        log.warning("JobQueue yo'q — eslatmalar ishlamaydi. "
+                    "pip install 'python-telegram-bot[job-queue]'")
+        return
+    # Har soatning boshida: o'sha soatga eslatma buyurganlarga.
+    jq.run_custom(job_daily_reminder,
+                  job_kwargs={"trigger": "cron", "minute": 0, "timezone": config.TZ},
+                  name="kunlik-eslatma")
+    # Har kuni 10:00 da: muddati tugayotganlarga.
+    jq.run_custom(job_expiry_warning,
+                  job_kwargs={"trigger": "cron", "hour": 10, "minute": 0,
+                              "timezone": config.TZ},
+                  name="muddat-ogohlantirishi")
+    log.info("Rejalashtirilgan vazifalar yoqildi: eslatma (har soat), "
+             "muddat ogohlantirishi (10:00)")
 
 
 # --------------------------------------------------------------------------- #
@@ -1318,6 +2049,12 @@ BOT_COMMANDS = [
     ("csv", "Barcha yozuvlarni fayl qilib olish"),
     ("obuna", "Obuna tariflari"),
     ("holat", "Obuna holati va bugungi limitlar"),
+    ("byudjet", "Oylik byudjet qo'yish"),
+    ("eslatma", "Kunlik eslatmani sozlash"),
+    ("taklif", "Do'st taklif qilib bepul kun olish"),
+    ("til", "Til / Язык"),
+    ("maxfiylik", "Maxfiylik siyosati"),
+    ("ochirish", "Hisobni butunlay o'chirish"),
 ]
 
 # Faqat bot egasining «/» menyusida ko'rinadigan buyruqlar.
@@ -1359,20 +2096,27 @@ async def _post_init(app: Application) -> None:
 def build_menu_actions() -> None:
     """Menyu tugmalarini handlerlarga bog'laydi. Barcha handlerlar e'lon
     qilingandan keyin chaqiriladi."""
-    MENU_ACTIONS.update({
-        "📊 Bugun": _period_command("bugun"),
-        "📅 Hafta": _period_command("hafta"),
-        "🗓 Oy": _period_command("oy"),
-        "📈 Yil": _period_command("yil"),
-        "🧾 Oxirgi": cmd_recent,
-        "🤝 Qarzlar": cmd_debts,
-        "📤 CSV": cmd_csv,
-        "📖 Qo'llanma": cmd_guide,
-        "💎 Obuna": cmd_plans,
-        "🧾 Uzun chek": cmd_collect_start,
-        "✅ Tayyor": cmd_collect_done,
-        "❌ Bekor": cmd_collect_cancel,
-    })
+    handlers = {
+        "today": _period_command("bugun"),
+        "week": _period_command("hafta"),
+        "month": _period_command("oy"),
+        "year": _period_command("yil"),
+        "recent": cmd_recent,
+        "debts": cmd_debts,
+        "csv": cmd_csv,
+        "guide": cmd_guide,
+        "subs": cmd_plans,
+        "budget": cmd_budget,
+        "referral": cmd_referral,
+        "longbill": cmd_collect_start,
+        "ready": cmd_collect_done,
+        "cancel": cmd_collect_cancel,
+    }
+    # Ikkala tildagi tugma matni ham qabul qilinadi: foydalanuvchi tilni
+    # almashtirsa, eski klaviatura hali ekranda turgan bo'lishi mumkin.
+    for text, key in i18n.menu_lookup().items():
+        if key in handlers:
+            MENU_ACTIONS[text] = handlers[key]
 
 
 build_menu_actions()
@@ -1420,6 +2164,12 @@ def main() -> None:
     app.add_handler(CommandHandler("holat", cmd_status))
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("panel", cmd_panel))
+    app.add_handler(CommandHandler(["til", "lang", "yazyk"], cmd_lang))
+    app.add_handler(CommandHandler(["maxfiylik", "privacy"], cmd_privacy))
+    app.add_handler(CommandHandler(["ochirish", "hisobniochir"], cmd_erase))
+    app.add_handler(CommandHandler(["taklif", "referal"], cmd_referral))
+    app.add_handler(CommandHandler(["byudjet", "budjet"], cmd_budget))
+    app.add_handler(CommandHandler("eslatma", cmd_reminder))
     app.add_handler(CommandHandler("bugun", _period_command("bugun")))
     app.add_handler(CommandHandler("kecha", _period_command("kecha")))
     app.add_handler(CommandHandler("hafta", _period_command("hafta")))
@@ -1438,6 +2188,7 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
+    schedule_jobs(app)
 
     log.info("Bot ishga tushdi. To'xtatish: Ctrl+C")
     app.run_polling(drop_pending_updates=True)

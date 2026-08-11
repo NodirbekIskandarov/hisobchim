@@ -901,12 +901,21 @@
   // CSV eksport
   // ----------------------------------------------------------------------- //
 
-  function exportCsv() {
-    const url = `${location.origin}/api/export.csv?init_data=${encodeURIComponent(INIT_DATA)}`;
-    if (tg && tg.openLink) {
-      tg.openLink(url);
-    } else {
-      window.open(url, "_blank");
+  // Havolada imzo tashilmaydi: avval bir martalik token olinadi, u 60
+  // soniya yashaydi va ishlatilgach o'chadi. Shunda havola brauzer
+  // tarixida qolib ketsa ham ish bermaydi.
+  async function exportCsv() {
+    try {
+      const { token } = await api("/api/export/token", { method: "POST" });
+      const url = `${location.origin}/api/export.csv?token=${encodeURIComponent(token)}`;
+      if (tg && tg.openLink) {
+        tg.openLink(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    } catch (e) {
+      haptic("error");
+      toast("Yuklab bo'lmadi: " + e.message);
     }
   }
 

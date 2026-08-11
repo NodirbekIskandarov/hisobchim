@@ -3,6 +3,7 @@ user_id bo'yicha ajratilgan — kerak bo'lsa bir nechta odam ishlatishi mumkin."
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -75,6 +76,17 @@ CREATE TABLE IF NOT EXISTS subscription_requests (
     note        TEXT    NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_req_status ON subscription_requests(status, created_at DESC);
+
+-- Kategoriya bo'yicha oylik byudjet. 80% va 100% da bir martadan
+-- ogohlantiriladi; `notified` shu oyni «YYYY-MM:daraja» ko'rinishida saqlaydi.
+CREATE TABLE IF NOT EXISTS budgets (
+    user_id   INTEGER NOT NULL,
+    category  TEXT    NOT NULL,
+    amount    REAL    NOT NULL,
+    currency  TEXT    NOT NULL DEFAULT 'som',
+    notified  TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (user_id, category, currency)
+);
 """
 
 # Eski bazalarga keyin qo'shilgan ustunlar. CREATE TABLE IF NOT EXISTS mavjud
@@ -82,6 +94,21 @@ CREATE INDEX IF NOT EXISTS idx_req_status ON subscription_requests(status, creat
 MIGRATIONS = [
     ("receipt_id", "ALTER TABLE transactions ADD COLUMN receipt_id TEXT"),
     ("currency", "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'som'"),
+]
+
+# Boshqa jadvallarga keyin qo'shilgan ustunlar: (jadval, ustun, SQL)
+TABLE_MIGRATIONS = [
+    ("subscription_requests", "proof_file_id",
+     "ALTER TABLE subscription_requests ADD COLUMN proof_file_id TEXT"),
+    ("subscription_requests", "proof_at",
+     "ALTER TABLE subscription_requests ADD COLUMN proof_at TEXT"),
+    ("users", "referred_by", "ALTER TABLE users ADD COLUMN referred_by INTEGER"),
+    ("users", "bonus_days",
+     "ALTER TABLE users ADD COLUMN bonus_days INTEGER NOT NULL DEFAULT 0"),
+    ("users", "reminder_hour", "ALTER TABLE users ADD COLUMN reminder_hour INTEGER"),
+    ("users", "warned_stage",
+     "ALTER TABLE users ADD COLUMN warned_stage INTEGER NOT NULL DEFAULT 0"),
+    ("users", "lang", "ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT 'uz'"),
 ]
 
 
@@ -112,6 +139,10 @@ def init() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_tx_receipt ON transactions(user_id, receipt_id)"
         )
+        for table, column, sql in TABLE_MIGRATIONS:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if cols and column not in cols:
+                conn.execute(sql)
 
 
 # --------------------------------------------------------------------------- #
@@ -269,6 +300,59 @@ def by_category(
             (user_id, kind, currency, start.isoformat(), end.isoformat()),
         )
         return [(r["category"], float(r["total"]), int(r["cnt"])) for r in cur.fetchall()]
+
+
+def search_transactions(
+    user_id: int,
+    start: date,
+    end: date,
+    kind: str | None = None,
+    currency: str | None = None,
+    search: str | None = None,
+    receipt_id: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """Filtrlash, jamlash va sahifalash — hammasi SQL tomonida.
+
+    Ilgari butun tarix Python'ga tortilib, u yerda filtrlanardi. Bir necha
+    yillik yozuv to'planganda bu sezilarli yuk beradi.
+    """
+    where = ["user_id = ?", "occurred_on BETWEEN ? AND ?"]
+    params: list = [user_id, start.isoformat(), end.isoformat()]
+
+    if kind:
+        where.append("kind = ?")
+        params.append(kind)
+    if currency:
+        where.append("currency = ?")
+        params.append(currency)
+    if receipt_id:
+        where.append("receipt_id = ?")
+        params.append(receipt_id)
+    if search and search.strip():
+        needle = f"%{search.strip().lower()}%"
+        where.append(
+            "(LOWER(COALESCE(note,'')) LIKE ? OR LOWER(COALESCE(category,'')) LIKE ? "
+            "OR LOWER(COALESCE(person,'')) LIKE ? OR LOWER(COALESCE(raw_text,'')) LIKE ?)")
+        params += [needle] * 4
+
+    clause = " AND ".join(where)
+    with get_conn() as conn:
+        total = int(conn.execute(
+            f"SELECT COUNT(*) FROM transactions WHERE {clause}", params).fetchone()[0])
+        totals = {
+            r["currency"]: round(float(r["s"]), 2)
+            for r in conn.execute(
+                f"SELECT currency, SUM(amount) s FROM transactions "
+                f"WHERE {clause} GROUP BY currency", params).fetchall()
+        }
+        items = conn.execute(
+            f"""SELECT * FROM transactions WHERE {clause}
+                ORDER BY occurred_on DESC, id DESC LIMIT ? OFFSET ?""",
+            params + [limit, offset]).fetchall()
+
+    return {"total_count": total, "totals": totals, "items": items}
 
 
 def recent(user_id: int, limit: int = 10) -> list[sqlite3.Row]:
@@ -449,11 +533,298 @@ def add_subscription_request(user_id: int, plan_code: str, price: int) -> int:
         return int(cur.lastrowid)
 
 
+def attach_payment_proof(request_id: int, file_id: str) -> bool:
+    """Foydalanuvchi yuborgan to'lov chekini so'rovga biriktiradi."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            """UPDATE subscription_requests
+               SET proof_file_id = ?, proof_at = ?, status = 'tekshiruvda'
+               WHERE id = ? AND status IN ('kutilmoqda', 'tekshiruvda')""",
+            (file_id, _now_local(), request_id),
+        )
+        return cur.rowcount > 0
+
+
+def get_request(request_id: int) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM subscription_requests WHERE id = ?", (request_id,)
+        ).fetchone()
+
+
+def open_request_for(user_id: int) -> sqlite3.Row | None:
+    """Foydalanuvchining hal qilinmagan oxirgi so'rovi."""
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT * FROM subscription_requests
+               WHERE user_id = ? AND status IN ('kutilmoqda', 'tekshiruvda')
+               ORDER BY id DESC LIMIT 1""",
+            (user_id,),
+        ).fetchone()
+
+
 def pending_request_count() -> int:
     with get_conn() as conn:
         return int(conn.execute(
-            "SELECT COUNT(*) FROM subscription_requests WHERE status = 'kutilmoqda'"
+            "SELECT COUNT(*) FROM subscription_requests "
+            "WHERE status IN ('kutilmoqda', 'tekshiruvda')"
         ).fetchone()[0])
+
+
+# --------------------------------------------------------------------------- #
+# Referal — do'st taklif qilish
+# --------------------------------------------------------------------------- #
+
+def set_referrer(user_id: int, referrer_id: int) -> bool:
+    """Yangi foydalanuvchini taklif qilgan odamni belgilaydi.
+
+    Faqat bir marta va faqat yangi (yozuvi yo'q) foydalanuvchi uchun —
+    aks holda o'zini o'zi taklif qilish yoki qayta hisoblash mumkin bo'lardi.
+    """
+    if user_id == referrer_id:
+        return False
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT referred_by, created_at FROM users WHERE user_id = ?",
+            (user_id,)).fetchone()
+        if row is None or row["referred_by"] is not None:
+            return False
+        if not conn.execute("SELECT 1 FROM users WHERE user_id = ?",
+                            (referrer_id,)).fetchone():
+            return False
+        has_data = conn.execute(
+            "SELECT 1 FROM transactions WHERE user_id = ? LIMIT 1", (user_id,)).fetchone()
+        if has_data:
+            return False
+        conn.execute("UPDATE users SET referred_by = ? WHERE user_id = ?",
+                     (referrer_id, user_id))
+        return True
+
+
+def add_bonus_days(user_id: int, days: int) -> datetime:
+    """Bonus kunlarni amaldagi muddat ustiga qo'shadi (sinov yoki obuna)."""
+    now = datetime.now(config.TZ)
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT trial_ends_at, subscribed_until, bonus_days FROM users "
+            "WHERE user_id = ?", (user_id,)).fetchone()
+        if row is None:
+            return now
+        sub = _parse_dt(row["subscribed_until"])
+        if sub and sub > now:
+            until = sub + timedelta(days=days)
+            conn.execute("UPDATE users SET subscribed_until = ?, bonus_days = ? "
+                         "WHERE user_id = ?",
+                         (until.isoformat(timespec="seconds"),
+                          (row["bonus_days"] or 0) + days, user_id))
+        else:
+            trial = _parse_dt(row["trial_ends_at"])
+            base = trial if trial and trial > now else now
+            until = base + timedelta(days=days)
+            conn.execute("UPDATE users SET trial_ends_at = ?, bonus_days = ?, "
+                         "warned_stage = 0 WHERE user_id = ?",
+                         (until.isoformat(timespec="seconds"),
+                          (row["bonus_days"] or 0) + days, user_id))
+        return until
+
+
+def referral_stats(user_id: int) -> dict:
+    with get_conn() as conn:
+        invited = int(conn.execute(
+            "SELECT COUNT(*) FROM users WHERE referred_by = ?", (user_id,)).fetchone()[0])
+        bonus = conn.execute(
+            "SELECT bonus_days FROM users WHERE user_id = ?", (user_id,)).fetchone()
+    return {"invited": invited, "bonus_days": (bonus["bonus_days"] if bonus else 0) or 0}
+
+
+# --------------------------------------------------------------------------- #
+# Byudjet
+# --------------------------------------------------------------------------- #
+
+def set_budget(user_id: int, category: str, amount: float, currency: str = "som") -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO budgets (user_id, category, amount, currency)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id, category, currency)
+               DO UPDATE SET amount = excluded.amount, notified = ''""",
+            (user_id, category, float(amount), currency))
+
+
+def delete_budget(user_id: int, category: str, currency: str = "som") -> bool:
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM budgets WHERE user_id = ? AND category = ? AND currency = ?",
+            (user_id, category, currency))
+        return cur.rowcount > 0
+
+
+def list_budgets(user_id: int) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM budgets WHERE user_id = ? ORDER BY category", (user_id,)
+        ).fetchall()
+
+
+def budget_status(user_id: int) -> list[dict]:
+    """Har bir byudjet bo'yicha shu oyda qancha sarflanganini qaytaradi."""
+    today = datetime.now(config.TZ).date()
+    start = today.replace(day=1).isoformat()
+    out = []
+    with get_conn() as conn:
+        for b in conn.execute("SELECT * FROM budgets WHERE user_id = ?",
+                              (user_id,)).fetchall():
+            spent = float(conn.execute(
+                """SELECT COALESCE(SUM(amount), 0) FROM transactions
+                   WHERE user_id = ? AND kind = ? AND category = ? AND currency = ?
+                     AND occurred_on >= ?""",
+                (user_id, config.KIND_CHIQIM, b["category"], b["currency"], start)
+            ).fetchone()[0])
+            limit = float(b["amount"])
+            out.append({
+                "category": b["category"], "limit": limit, "spent": spent,
+                "currency": b["currency"],
+                "percent": round(100 * spent / limit, 1) if limit else 0.0,
+                "left": limit - spent,
+                "notified": b["notified"] or "",
+            })
+    return sorted(out, key=lambda x: -x["percent"])
+
+
+def mark_budget_notified(user_id: int, category: str, currency: str, tag: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE budgets SET notified = ? WHERE user_id = ? AND category = ? "
+            "AND currency = ?", (tag, user_id, category, currency))
+
+
+# --------------------------------------------------------------------------- #
+# Eslatmalar va muddat ogohlantirishi
+# --------------------------------------------------------------------------- #
+
+def get_lang(user_id: int) -> str:
+    with get_conn() as conn:
+        row = conn.execute("SELECT lang FROM users WHERE user_id = ?",
+                           (user_id,)).fetchone()
+        return (row["lang"] if row and row["lang"] else "uz")
+
+
+def set_lang(user_id: int, lang: str) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
+
+
+def set_reminder_hour(user_id: int, hour: int | None) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET reminder_hour = ? WHERE user_id = ?",
+                     (hour, user_id))
+
+
+def get_reminder_hour(user_id: int) -> int | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT reminder_hour FROM users WHERE user_id = ?",
+                           (user_id,)).fetchone()
+        return row["reminder_hour"] if row else None
+
+
+def users_for_reminder(hour: int) -> list[int]:
+    """Shu soatga eslatma buyurgan va kirish huquqi bor foydalanuvchilar."""
+    now = datetime.now(config.TZ)
+    out = []
+    with get_conn() as conn:
+        for r in conn.execute(
+                "SELECT * FROM users WHERE reminder_hour = ? AND blocked = 0",
+                (hour,)).fetchall():
+            if r["user_id"] in config.OWNER_IDS:
+                out.append(r["user_id"])
+                continue
+            sub = _parse_dt(r["subscribed_until"])
+            trial = _parse_dt(r["trial_ends_at"])
+            if (sub and sub > now) or (trial and trial > now):
+                out.append(r["user_id"])
+    return out
+
+
+def users_expiring(stages: tuple[int, ...] = (3, 1)) -> list[dict]:
+    """Muddati tugashiga `stages` kun qolganlar. Har daraja bir marta.
+
+    `warned_stage` — oxirgi yuborilgan ogohlantirish darajasi. Muddat
+    uzaytirilsa nolga qaytariladi, shunda keyingi safar yana yuboriladi.
+    """
+    now = datetime.now(config.TZ)
+    out = []
+    with get_conn() as conn:
+        for r in conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall():
+            if r["user_id"] in config.OWNER_IDS:
+                continue
+            sub = _parse_dt(r["subscribed_until"])
+            trial = _parse_dt(r["trial_ends_at"])
+            if sub and sub > now:
+                expires, kind = sub, "obuna"
+            elif trial and trial > now:
+                expires, kind = trial, "sinov"
+            else:
+                continue
+            # Yuqoriga yaxlitlaymiz: 1 kun 23 soat qolgan bo'lsa bu «2 kun»,
+            # «1 kun» emas. Aks holda aynan 2 kunda 3 kunlik ogohlantirish
+            # o'tkazib yuborilib, 1 kunligi erta ketardi.
+            seconds = (expires - now).total_seconds()
+            left = max(0, math.ceil(seconds / 86400))
+            stage = next((s for s in sorted(stages) if left <= s), None)
+            if stage is None:
+                continue
+            already = r["warned_stage"] or 0
+            # Kichikroq daraja = shoshilinchroq. Faqat yangi darajada yuboramiz.
+            if already and stage >= already:
+                continue
+            out.append({"user_id": r["user_id"], "first_name": r["first_name"],
+                        "kind": kind, "days_left": left, "stage": stage,
+                        "expires_at": expires})
+    return out
+
+
+def mark_warned(user_id: int, stage: int) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET warned_stage = ? WHERE user_id = ?",
+                     (stage, user_id))
+
+
+def day_summary(user_id: int, day: date) -> dict:
+    """Kunlik eslatma uchun qisqa jamlanma."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT kind, currency, COUNT(*) n, COALESCE(SUM(amount), 0) s
+               FROM transactions WHERE user_id = ? AND occurred_on = ?
+               GROUP BY kind, currency""",
+            (user_id, day.isoformat())).fetchall()
+    total = {"count": 0, "chiqim": {}, "kirim": {}}
+    for r in rows:
+        total["count"] += r["n"]
+        if r["kind"] == config.KIND_CHIQIM:
+            total["chiqim"][r["currency"]] = float(r["s"])
+        elif r["kind"] == config.KIND_KIRIM:
+            total["kirim"][r["currency"]] = float(r["s"])
+    return total
+
+
+# --------------------------------------------------------------------------- #
+# Foydalanuvchi ma'lumotini butunlay o'chirish (M-2)
+# --------------------------------------------------------------------------- #
+
+def erase_user(user_id: int) -> dict:
+    """Foydalanuvchining butun izini o'chiradi. Qaytarib bo'lmaydi."""
+    with get_conn() as conn:
+        tx = conn.execute("DELETE FROM transactions WHERE user_id = ?",
+                          (user_id,)).rowcount
+        usage = conn.execute("DELETE FROM usage_log WHERE user_id = ?",
+                             (user_id,)).rowcount
+        conn.execute("DELETE FROM budgets WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
+        # Taklif qilganlar zanjiri uzilmasin — havola bo'sh qoladi.
+        conn.execute("UPDATE users SET referred_by = NULL WHERE referred_by = ?",
+                     (user_id,))
+        conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+    return {"transactions": tx, "usage": usage}
 
 
 def set_blocked(user_id: int, blocked: bool) -> bool:

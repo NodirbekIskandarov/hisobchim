@@ -105,12 +105,34 @@ ALLOWED_USER_IDS = _ids("ALLOWED_USER_IDS")
 
 # Yangi foydalanuvchi uchun bepul sinov muddati (kun).
 TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
+# Do'st taklif qilgan uchun ikkala tomonga qo'shiladigan bepul kunlar
+REFERRAL_BONUS_DAYS = int(os.getenv("REFERRAL_BONUS_DAYS", "7"))
 
 # Obuna bo'lish uchun murojaat manzili (masalan @username).
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 
 # Admin web paneli manzili — egaga bildirishnomada ko'rsatiladi.
 ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "").strip().rstrip("/")
+
+# --- To'lov rekvizitlari ---
+# Hozircha to'lov kartaga o'tkazma orqali: foydalanuvchi pul o'tkazadi,
+# chek skrinshotini yuboradi, admin panelda tasdiqlaydi. Click/Payme
+# integratsiyasi shartnoma tuzilgach qo'shiladi.
+CARD_NUMBER = os.getenv("CARD_NUMBER", "").strip()
+CARD_HOLDER = os.getenv("CARD_HOLDER", "").strip()
+CARD_BANK = os.getenv("CARD_BANK", "").strip()
+
+
+def card_ready() -> bool:
+    return bool(CARD_NUMBER and CARD_HOLDER)
+
+
+def card_pretty() -> str:
+    """Karta raqamini 4 talab ajratib ko'rsatadi."""
+    digits = "".join(ch for ch in CARD_NUMBER if ch.isdigit())
+    if len(digits) == 16:
+        return " ".join(digits[i:i + 4] for i in range(0, 16, 4))
+    return CARD_NUMBER
 
 # --------------------------------------------------------------------------- #
 # Obuna tariflari

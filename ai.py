@@ -162,9 +162,23 @@ def _parse_system_prompt(today: date) -> str:
         else "- Sonlarni aynan yozilganidek ol, o'zingdan ko'paytirma.\n"
     )
     return (
-        "Sen o'zbek tilidagi shaxsiy moliya botining tahlil qismisan. "
-        "Foydalanuvchining erkin yozilgan xabarini o'qib, undan kirim, chiqim va "
-        "qarz yozuvlarini ajratib olasan.\n\n"
+        "Sen shaxsiy moliya botining tahlil qismisan. Foydalanuvchining erkin "
+        "yozilgan xabarini o'qib, undan kirim, chiqim va qarz yozuvlarini "
+        "ajratib olasan.\n"
+        "Xabar uchta yozuvda kelishi mumkin — uchalasini ham tushun:\n"
+        "  1) O'ZBEK LOTIN: \"obedga 45 ming\", \"taksi 20k\", \"oylik tushdi 8 mln\"\n"
+        "  2) O'ZBEK KIRILL: \"обедга 45 минг\", \"такси 20 минг\", "
+        "\"ойлик тушди 8 млн\", \"Алига 500 минг қарз бердим\"\n"
+        "  3) RUS: \"обед 45 тысяч\", \"такси 20 тысяч\", \"зарплата 8 млн\", "
+        "\"дал в долг Али 500 тысяч\"\n"
+        "Kirill va rus tilidagi sonlar: \"минг\"/\"тысяч\"/\"тыс\" = 1000, "
+        "\"млн\"/\"миллион\" = 1000000, \"млрд\" = 1000000000.\n"
+        "DIQQAT: o'zbek kirill va rus tili bir xil alifboda yozilsa ham "
+        "boshqa-boshqa tillar. \"қарз бердим\" — o'zbekcha, \"дал в долг\" — "
+        "ruscha; ikkalasi ham qarz berish.\n"
+        "Kategoriya nomlari va izohlar HAR DOIM ro'yxatdagidek o'zbek lotin "
+        "yozuvida qaytariladi — foydalanuvchi qaysi yozuvda yozganidan "
+        "qat'i nazar. Izohni esa foydalanuvchi yozganidek qoldir.\n\n"
         f"Bugungi sana: {today.isoformat()}.\n"
         f"Standart valyuta: {config.CURRENCY} ('som'). Ikkinchi qo'llab-quvvatlanadigan "
         "valyuta: AQSH dollari ('usd').\n\n"
@@ -385,6 +399,14 @@ RECEIPT_TOOL = {
                 "type": "number",
                 "description": "Chegirma/skidka summasi, agar ko'rsatilgan bo'lsa.",
             },
+            "valyuta": {
+                "type": "string",
+                "enum": ["som", "usd"],
+                "description": (
+                    "Chekdagi summalar qaysi valyutada. So'm/sum/UZS yoki "
+                    "belgisiz => 'som'. $/USD/dollar => 'usd'."
+                ),
+            },
             "izoh_matni": {
                 "type": "string",
                 "description": (
@@ -441,6 +463,9 @@ def _receipt_system_prompt(today: date, parts: int) -> str:
         "butun chekni tashlab yuborma.\n"
         "- Fayl chek bo'lmasa (masalan oddiy surat yoki boshqa hujjat) => "
         "oqildi=false va izoh_matni'da qisqa tushuntirish.\n"
+        "- VALYUTA: chekda \"so'm\", \"sum\", \"UZS\" yozilgan yoki hech narsa "
+        "yozilmagan bo'lsa => valyuta=\"som\". Chekda \"$\", \"USD\" yoki "
+        "\"dollar\" belgisi bo'lsa => valyuta=\"usd\". Ikkilansang \"som\" qo'y.\n"
     )
 
 
@@ -571,6 +596,9 @@ def _normalize_receipt(payload: dict[str, Any], today: date) -> dict[str, Any]:
         "mahsulotlar": items,
         "chekdagi_jami": _num("chekdagi_jami"),
         "chegirma": _num("chegirma"),
+        # Chekdagi valyuta. Ilgari hamma chek so'm deb olinardi — dollarli
+        # chek noto'g'ri tushardi.
+        "valyuta": config.normalize_currency(payload.get("valyuta")),
         "izoh_matni": (payload.get("izoh_matni") or "").strip(),
     }
 
@@ -679,7 +707,11 @@ async def parse_receipt(
 QA_SYSTEM = (
     "Sen foydalanuvchining shaxsiy moliyaviy yordamchisisan. Quyida uning "
     "yozuvlari JSON ko'rinishida beriladi. Faqat shu ma'lumotlarga tayanib, "
-    "o'zbek tilida qisqa va aniq javob ber.\n"
+    "qisqa va aniq javob ber.\n"
+    "- TIL: javobni foydalanuvchi savol bergan TIL VA YOZUVDA yoz. Savol "
+    "o'zbek lotinda bo'lsa — o'zbek lotinda, o'zbek kirillda bo'lsa — "
+    "o'zbek kirillda (\"қанча сарфладим\" => кирилл javob), ruscha bo'lsa — "
+    "ruscha javob ber.\n"
     "- MUHIM: 'hisoblangan' bo'limida tayyor jamlanmalar berilgan — ular dastur "
     "tomonidan aniq hisoblangan. Savol shu jamlanmalar bilan javob berilsa, "
     "sonlarni O'ZING QAYTA QO'SHMA, tayyorini ol.\n"
