@@ -110,6 +110,38 @@ TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 
 # --------------------------------------------------------------------------- #
+# Obuna tariflari
+#
+# Narxni o'zgartirish uchun shu ro'yxatni tahrirlang — bot matnlari, tejash
+# foizi va oylik narx avtomatik qayta hisoblanadi.
+# Uzoq muddatli obuna ataylab arzonroq: AI xarajati past, shuning uchun
+# obunachini uzoq muddatga "qulflash" foydali.
+# --------------------------------------------------------------------------- #
+
+SUBSCRIPTION_PLANS = [
+    {"code": "1m",  "days": 30,  "months": 1,  "price": 37_000,  "label": "Oylik"},
+    {"code": "3m",  "days": 90,  "months": 3,  "price": 99_000,  "label": "3 oylik"},
+    {"code": "6m",  "days": 180, "months": 6,  "price": 179_000, "label": "6 oylik"},
+    {"code": "12m", "days": 365, "months": 12, "price": 289_000, "label": "Yillik"},
+]
+
+
+def plan_by_code(code: str) -> dict | None:
+    return next((p for p in SUBSCRIPTION_PLANS if p["code"] == code), None)
+
+
+def plan_monthly_price(plan: dict) -> int:
+    return round(plan["price"] / plan["months"])
+
+
+def plan_discount_percent(plan: dict) -> int:
+    """Oylik tarifga nisbatan necha foiz tejaladi."""
+    base = SUBSCRIPTION_PLANS[0]["price"] * plan["months"]
+    if base <= 0 or plan["price"] >= base:
+        return 0
+    return round((base - plan["price"]) / base * 100)
+
+# --------------------------------------------------------------------------- #
 # Kunlik limitlar — suiiste'moldan himoya. Egalarga qo'llanmaydi.
 # Bitta foydalanuvchi cheksiz so'rov yuborib katta xarajat keltirmasligi uchun.
 # --------------------------------------------------------------------------- #

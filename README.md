@@ -121,7 +121,7 @@ ALLOWED_USER_IDS=
 python bot.py
 ```
 
-Botni Telegramdan toping va `/id` yozing — u sizga raqamingizni aytadi.
+Botni Telegramdan toping va `/id` yozing (bu buyruq faqat OWNER_IDS bo'sh bo'lganda yoki egaga ishlaydi) — u sizga raqamingizni aytadi.
 Shu raqamni `.env` dagi `ALLOWED_USER_IDS` ga yozing, botni to'xtatib (`Ctrl+C`) qayta ishga tushiring.
 
 Tayyor. Endi botga xarajatlaringizni yozavering.
@@ -141,7 +141,6 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 | `/ochir 12` | 12-raqamli yozuvni o'chirish |
 | `/yopdim 12` | Qarzni yopilgan deb belgilash |
 | `/csv` | Barcha yozuvlarni CSV fayl qilib olish |
-| `/id` | Telegram ID |
 
 ## Sozlamalar (`.env`)
 

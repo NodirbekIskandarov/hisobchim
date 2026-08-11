@@ -86,7 +86,8 @@ yuboring — Telegram uni siqmaydi.
 /yopdim 12 — qarzni yopilgan deb belgilash
 /csv — barcha yozuvlarni fayl qilib olish
 /qollanma — to'liq foydalanish yo'riqnomasi
-/id — Telegram ID'ingiz"""
+/obuna — obuna tariflari
+/holat — obuna holati va bugungi limitlar"""
 
 
 GUIDE_TEXT = """📖 <b>FOYDALANISH YO'RIQNOMASI</b>
@@ -224,7 +225,7 @@ guruhlangan bo'ladi."""
 SUBSCRIBE_TEXT = (
     "⏳ <b>Bepul muddat tugadi</b>\n\n"
     "Botdan foydalanishni davom ettirish uchun obuna kerak.\n"
-    "Obuna bo'lish uchun <b>{contact}</b> ga yozing.\n\n"
+    "Quyidagi tariflardan birini tanlang yoki <b>{contact}</b> ga yozing.\n\n"
     "<i>Ma'lumotlaringiz saqlanib turibdi — obunadan keyin hammasi joyida bo'ladi.</i>"
 )
 
@@ -260,6 +261,7 @@ def private_only(func):
             await msg.reply_text(
                 SUBSCRIBE_TEXT.format(contact=reports.esc(_support_contact())),
                 parse_mode=ParseMode.HTML,
+                reply_markup=plans_keyboard(),
             )
         return
 
@@ -323,6 +325,7 @@ def main_menu() -> ReplyKeyboardMarkup:
         ["📊 Bugun", "📅 Hafta", "🗓 Oy"],
         ["🧾 Oxirgi", "🤝 Qarzlar", "📈 Yil"],
         ["🧾 Uzun chek", "📤 CSV", "📖 Qo'llanma"],
+        ["💎 Obuna"],
     ]
     keyboard = [[KeyboardButton(text) for text in row] for row in rows]
     if config.WEBAPP_URL:
@@ -441,10 +444,16 @@ async def cmd_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Faqat bot egasi uchun. OWNER_IDS hali bo'sh bo'lsa — birinchi
+    sozlash uchun ochiq qoladi, aks holda egani aniqlab bo'lmaydi."""
     user = update.effective_user
+    if user is None:
+        return
+    if config.OWNER_IDS and user.id not in config.OWNER_IDS:
+        return  # oddiy foydalanuvchiga buyruq umuman mavjud emasdek
     await update.message.reply_text(
         f"Telegram ID: {user.id}\n"
-        f"Uni .env faylidagi ALLOWED_USER_IDS ga yozing."
+        f"Uni .env faylidagi OWNER_IDS ga yozing."
     )
 
 
@@ -808,20 +817,10 @@ async def cmd_collect_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # Asosiy matn handleri
 # --------------------------------------------------------------------------- #
 
-# Menyu tugmalari matn sifatida keladi — shu yerda tegishli handlerga yo'naltiriladi.
-MENU_ACTIONS = {
-    "📊 Bugun": _period_command("bugun"),
-    "📅 Hafta": _period_command("hafta"),
-    "🗓 Oy": _period_command("oy"),
-    "📈 Yil": _period_command("yil"),
-    "🧾 Oxirgi": cmd_recent,
-    "🤝 Qarzlar": cmd_debts,
-    "📤 CSV": cmd_csv,
-    "📖 Qo'llanma": cmd_guide,
-    "🧾 Uzun chek": cmd_collect_start,
-    "✅ Tayyor": cmd_collect_done,
-    "❌ Bekor": cmd_collect_cancel,
-}
+# Menyu tugmalari matn sifatida keladi — shu yerda tegishli handlerga
+# yo'naltiriladi. Lug'at fayl OXIRIDA to'ldiriladi (build_menu_actions),
+# chunki bu yerda hali hamma handler e'lon qilinmagan.
+MENU_ACTIONS: dict = {}
 
 
 @private_only
@@ -948,12 +947,24 @@ def _split_message(text: str, limit: int = 3900) -> list[str]:
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    user_id = update.effective_user.id
-    if user_id not in config.ALLOWED_USER_IDS:
-        await query.answer("Ruxsat yo'q.", show_alert=True)
+    user = update.effective_user
+    user_id = user.id
+    data = query.data or ""
+
+    # Obuna tugmalari kirish chegarasidan OLDIN keladi — muddati tugagan
+    # foydalanuvchi ham tarifni tanlay olishi kerak.
+    if data.startswith(("sub:", "subok:", "subno:")):
+        await on_subscription_callback(update, context)
         return
 
-    data = query.data or ""
+    # Boshqa hamma tugma uchun bot bilan bir xil kirish qoidasi.
+    access = db.access_status(user_id, user.first_name or "", user.username)
+    if not access["ok"]:
+        await query.answer(
+            "Obuna muddati tugagan." if access["status"] == "expired" else "Ruxsat yo'q.",
+            show_alert=True,
+        )
+        return
 
     if data.startswith("d:"):
         tx_id = int(data[2:])
@@ -1086,6 +1097,175 @@ def _fmt_dt(dt) -> str:
     return dt.strftime("%d.%m.%Y") if dt else "—"
 
 
+# --------------------------------------------------------------------------- #
+# Obuna tariflari
+# --------------------------------------------------------------------------- #
+
+def _fmt_price(amount: int) -> str:
+    return f"{amount:,}".replace(",", " ") + " so'm"
+
+
+def plans_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    for p in config.SUBSCRIPTION_PLANS:
+        disc = config.plan_discount_percent(p)
+        suffix = f" · −{disc}%" if disc else ""
+        rows.append([
+            InlineKeyboardButton(
+                f"{p['label']} — {_fmt_price(p['price'])}{suffix}",
+                callback_data=f"sub:{p['code']}",
+            )
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+def plans_text(access: dict | None = None) -> str:
+    lines = ["💎 <b>Obuna tariflari</b>", ""]
+
+    status = (access or {}).get("status")
+    if status == "trial":
+        lines += [
+            f"🎁 Bepul sinovingiz faol — <b>{access['days_left']} kun</b> qoldi.",
+            "<i>Hoziroq obuna bo'lsangiz, qolgan bepul kunlar yo'qolmaydi — "
+            "obuna muddati ularning ustiga qo'shiladi.</i>",
+            "",
+        ]
+    elif status == "subscribed":
+        lines += [
+            f"✅ Obunangiz faol — <b>{access['days_left']} kun</b> qoldi.",
+            "<i>Uzaytirsangiz, yangi muddat mavjudining ustiga qo'shiladi.</i>",
+            "",
+        ]
+
+    for p in config.SUBSCRIPTION_PLANS:
+        disc = config.plan_discount_percent(p)
+        per_month = config.plan_monthly_price(p)
+        line = f"<b>{p['label']}</b> — {_fmt_price(p['price'])}"
+        if disc:
+            line += f"  <b>({disc}% tejash)</b>"
+        lines.append(line)
+        if p["months"] > 1:
+            lines.append(f"    <i>oyiga {_fmt_price(per_month)}</i>")
+
+    lines += [
+        "",
+        "<b>Obunada nima bor:</b>",
+        "• Cheksiz matnli yozuv va chek o'qish",
+        "• Grafik boshqaruv paneli",
+        "• Savol-javob va barcha hisobotlar",
+        "• CSV eksport",
+        "",
+        "Kerakli tarifni tanlang — so'rovingiz adminga yuboriladi.",
+    ]
+    return "\n".join(lines)
+
+
+async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tariflarni ko'rsatadi. ATAYLAB kirish chegarasidan tashqarida —
+    muddati tugagan foydalanuvchi ham tarifni ko'ra olishi kerak."""
+    user = update.effective_user
+    if user is None:
+        return
+    access = db.access_status(user.id, user.first_name or "", user.username)
+
+    if access["status"] == "owner":
+        await update.effective_message.reply_text(
+            "👑 Siz bot egasisiz — obuna kerak emas, cheksiz foydalanasiz.\n\n"
+            + plans_text(),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    await update.effective_message.reply_text(
+        plans_text(access), parse_mode=ParseMode.HTML, reply_markup=plans_keyboard()
+    )
+
+
+async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tarif tanlash (foydalanuvchi) va tasdiqlash/rad etish (admin)."""
+    query = update.callback_query
+    user = update.effective_user
+    data = query.data or ""
+
+    # --- Foydalanuvchi tarif tanladi ---
+    if data.startswith("sub:"):
+        plan = config.plan_by_code(data[4:])
+        if not plan:
+            await query.answer("Tarif topilmadi", show_alert=True)
+            return
+        await query.answer("So'rov yuborildi ✅")
+        await query.edit_message_text(
+            f"📨 <b>So'rovingiz yuborildi</b>\n\n"
+            f"Tarif: <b>{plan['label']}</b> — {_fmt_price(plan['price'])}\n\n"
+            f"Admin tez orada bog'lanadi. To'lovdan so'ng obunangiz "
+            f"avtomatik faollashadi.\n\n"
+            f"Bevosita yozish: {reports.esc(_support_contact())}",
+            parse_mode=ParseMode.HTML,
+        )
+
+        # Adminga bir bosishda tasdiqlash tugmasi bilan xabar.
+        uname = f"@{user.username}" if user.username else "(username yo'q)"
+        admin_text = (
+            "🔔 <b>Yangi obuna so'rovi</b>\n\n"
+            f"👤 {reports.esc(user.first_name or '')} {reports.esc(uname)}\n"
+            f"🆔 <code>{user.id}</code>\n"
+            f"💎 {plan['label']} — {_fmt_price(plan['price'])} ({plan['days']} kun)"
+        )
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Tasdiqlash",
+                                 callback_data=f"subok:{user.id}:{plan['code']}"),
+            InlineKeyboardButton("❌ Rad etish", callback_data=f"subno:{user.id}"),
+        ]])
+        for owner in config.OWNER_IDS:
+            try:
+                await context.bot.send_message(owner, admin_text,
+                                               parse_mode=ParseMode.HTML, reply_markup=kb)
+            except Exception:
+                log.warning("Adminga so'rov yuborilmadi: %s", owner)
+        return
+
+    # --- Bundan keyingisi faqat admin uchun ---
+    if user.id not in config.OWNER_IDS:
+        await query.answer("Ruxsat yo'q.", show_alert=True)
+        return
+
+    if data.startswith("subok:"):
+        _, raw_id, code = data.split(":")
+        plan = config.plan_by_code(code)
+        if not plan:
+            await query.answer("Tarif topilmadi", show_alert=True)
+            return
+        target = int(raw_id)
+        until = db.grant_subscription(target, plan["days"])
+        await query.answer("Tasdiqlandi")
+        await query.edit_message_text(
+            f"✅ <b>Obuna berildi</b>\n\n"
+            f"🆔 <code>{target}</code>\n"
+            f"💎 {plan['label']} — {_fmt_price(plan['price'])}\n"
+            f"📅 {_fmt_dt(until)} gacha",
+            parse_mode=ParseMode.HTML,
+        )
+        try:
+            await context.bot.send_message(
+                target,
+                f"🎉 <b>Obunangiz faollashtirildi!</b>\n\n"
+                f"Tarif: {plan['label']}\n"
+                f"Amal qilish muddati: <b>{_fmt_dt(until)}</b>\n\n"
+                f"Rahmat! Holatni ko'rish: /holat",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            log.info("Obuna xabarini yuborib bo'lmadi: %s", target)
+        return
+
+    if data.startswith("subno:"):
+        target = int(data.split(":")[1])
+        await query.answer("Rad etildi")
+        await query.edit_message_text(f"❌ So'rov rad etildi (<code>{target}</code>).",
+                                      parse_mode=ParseMode.HTML)
+        return
+
+
 @private_only
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1114,7 +1294,16 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     n = len(db.all_rows(user_id))
     lines.append(f"📒 Bazangizda {n} ta yozuv bor.")
 
-    await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    # Ega bo'lmaganlarga tariflar shu yerdan ham ochiladi — sinov davri
+    # faol bo'lsa ham obuna sotib olish mumkin.
+    kb = None
+    if access["status"] != "owner":
+        lines += ["", "<i>Obunani hoziroq uzaytirsangiz, qolgan kunlar "
+                      "yo'qolmaydi — ustiga qo'shiladi.</i>"]
+        kb = plans_keyboard()
+
+    await update.effective_message.reply_text(
+        "\n".join(lines), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 @owner_only
@@ -1243,16 +1432,35 @@ BOT_COMMANDS = [
     ("ochir", "Yozuvni o'chirish: /ochir 12"),
     ("yopdim", "Qarzni yopish: /yopdim 12"),
     ("csv", "Barcha yozuvlarni fayl qilib olish"),
+    ("obuna", "Obuna tariflari"),
     ("holat", "Obuna holati va bugungi limitlar"),
+]
+
+# Faqat bot egasining «/» menyusida ko'rinadigan buyruqlar.
+OWNER_COMMANDS = BOT_COMMANDS + [
     ("id", "Telegram ID'ingiz"),
+    ("admin", "Statistika va sarf hisobi"),
+    ("berish", "Obuna berish: /berish <id> <kun>"),
+    ("bloklash", "Bloklash: /bloklash <id>"),
+    ("ochish", "Blokdan chiqarish: /ochish <id>"),
+    ("royxat", "Foydalanuvchilar ro'yxati"),
 ]
 
 
 async def _post_init(app: Application) -> None:
     """Telegramdagi «/» menyusini to'ldiradi — buyruqlarni eslash shart emas."""
-    from telegram import BotCommand
+    from telegram import BotCommand, BotCommandScopeChat
 
     await app.bot.set_my_commands([BotCommand(c, d) for c, d in BOT_COMMANDS])
+
+    # Egaga qo'shimcha buyruqlar ko'rinadi (/id va admin buyruqlari).
+    owner_cmds = [BotCommand(c, d) for c, d in OWNER_COMMANDS]
+    for owner in config.OWNER_IDS:
+        try:
+            await app.bot.set_my_commands(owner_cmds,
+                                          scope=BotCommandScopeChat(chat_id=owner))
+        except Exception as exc:
+            log.warning("Ega buyruqlarini o'rnatib bo'lmadi (%s): %s", owner, exc)
 
     # Pastki chap burchakdagi doimiy menyu tugmasi — Mini App'ni bir bosishda ochadi.
     if config.WEBAPP_URL:
@@ -1265,6 +1473,28 @@ async def _post_init(app: Application) -> None:
         log.info("Mini App menyu tugmasi yoqildi: %s", config.WEBAPP_URL)
     else:
         await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+
+
+def build_menu_actions() -> None:
+    """Menyu tugmalarini handlerlarga bog'laydi. Barcha handlerlar e'lon
+    qilingandan keyin chaqiriladi."""
+    MENU_ACTIONS.update({
+        "📊 Bugun": _period_command("bugun"),
+        "📅 Hafta": _period_command("hafta"),
+        "🗓 Oy": _period_command("oy"),
+        "📈 Yil": _period_command("yil"),
+        "🧾 Oxirgi": cmd_recent,
+        "🤝 Qarzlar": cmd_debts,
+        "📤 CSV": cmd_csv,
+        "📖 Qo'llanma": cmd_guide,
+        "💎 Obuna": cmd_plans,
+        "🧾 Uzun chek": cmd_collect_start,
+        "✅ Tayyor": cmd_collect_done,
+        "❌ Bekor": cmd_collect_cancel,
+    })
+
+
+build_menu_actions()
 
 
 def main() -> None:
@@ -1305,6 +1535,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler(["start", "yordam", "help"], cmd_start))
     app.add_handler(CommandHandler(["qollanma", "guide"], cmd_guide))
+    app.add_handler(CommandHandler(["obuna", "tarif"], cmd_plans))
     app.add_handler(CommandHandler("holat", cmd_status))
     app.add_handler(CommandHandler("id", cmd_id))
     # Admin buyruqlari — owner_only dekoratori boshqalarga jimgina javob bermaydi.
