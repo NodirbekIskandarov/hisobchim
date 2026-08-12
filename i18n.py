@@ -574,6 +574,11 @@ T = {
                "<i>Версия: {version}</i>"),
     },
 
+    "terms_operator": {
+        "uz": "<b>Xizmat ko'rsatuvchi:</b> {operator}",
+        "ru": "<b>Исполнитель:</b> {operator}",
+    },
+
     # ---- Maxfiylik siyosati ----
     "privacy": {
         "uz": ("🔒 <b>MAXFIYLIK SIYOSATI</b>\n\n"

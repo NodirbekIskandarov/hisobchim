@@ -624,10 +624,8 @@ async def on_consent_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if action == "terms":
         await query.answer()
         await query.message.reply_text(
-            i18n.t(lang, "terms", trial=config.TRIAL_DAYS,
-                   contact=reports.esc(_support_contact()),
-                   version=CONSENT_VERSION),
-            parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            _terms_text(lang), parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True)
         return
 
     if action != "yes":
@@ -1717,15 +1715,26 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
 # qaytadan so'raladi.
 CONSENT_VERSION = "2026-08-1"
 
+def _terms_text(lang: str) -> str:
+    """Ommaviy oferta matni. Rekvizitlar .env da to'ldirilgan bo'lsa
+    qo'shiladi — ro'yxatdan o'tmaguncha yolg'on ma'lumot yozilmaydi."""
+    text = i18n.t(lang, "terms", trial=config.TRIAL_DAYS,
+                  contact=reports.esc(_support_contact()),
+                  version=CONSENT_VERSION)
+    line = config.operator_line()
+    if line:
+        text += "\n" + i18n.t(lang, "terms_operator",
+                              operator=reports.esc(line))
+    return text
+
+
 @skip_consent
 async def cmd_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/shartlar — ommaviy oferta. Kirish chegarasidan tashqarida."""
     lang = lang_of(update.effective_user.id, context)
     await update.effective_message.reply_text(
-        i18n.t(lang, "terms", trial=config.TRIAL_DAYS,
-               contact=reports.esc(_support_contact()),
-               version=CONSENT_VERSION),
-        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        _terms_text(lang), parse_mode=ParseMode.HTML,
+        disable_web_page_preview=True)
 
 
 @private_only

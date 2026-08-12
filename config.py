@@ -125,6 +125,26 @@ MONTHLY_BUDGET_USD = float(os.getenv("MONTHLY_BUDGET_USD", "50"))
 # Obuna bo'lish uchun murojaat manzili (masalan @username).
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 
+# Xizmatni ko'rsatuvchi shaxs (ommaviy oferta va maxfiylik siyosatida
+# ko'rsatiladi). Ro'yxatdan o'tgandan keyin to'ldiriladi — bo'sh bo'lsa
+# hujjatlarda bu bo'lim umuman ko'rsatilmaydi.
+OPERATOR_NAME = os.getenv("OPERATOR_NAME", "").strip()
+OPERATOR_STATUS = os.getenv("OPERATOR_STATUS", "").strip()   # masalan: YaTT
+OPERATOR_TAX_ID = os.getenv("OPERATOR_TAX_ID", "").strip()   # STIR
+
+
+def operator_line() -> str:
+    """Oferta oxirida ko'rsatiladigan rekvizitlar. To'ldirilmagan bo'lsa bo'sh."""
+    if not OPERATOR_NAME:
+        return ""
+    parts = [OPERATOR_NAME]
+    if OPERATOR_STATUS:
+        parts.insert(0, OPERATOR_STATUS)
+    line = " ".join(parts)
+    if OPERATOR_TAX_ID:
+        line += f", STIR: {OPERATOR_TAX_ID}"
+    return line
+
 # Admin web paneli manzili — egaga bildirishnomada ko'rsatiladi.
 ADMIN_PANEL_URL = os.getenv("ADMIN_PANEL_URL", "").strip().rstrip("/")
 
