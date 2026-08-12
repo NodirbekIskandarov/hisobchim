@@ -431,6 +431,312 @@ T = {
         "uz": "📊 Hisobotingiz. Do'stlaringizga ulashsangiz bo'ladi!",
         "ru": "📊 Ваш отчёт. Можете поделиться с друзьями!",
     },
+
+    # ---- Rozilik (shaxsiy ma'lumotni qayta ishlashdan oldin) ----
+    "consent": {
+        "uz": ("👋 <b>Boshlashdan oldin</b>\n\n"
+               "Men sizning moliyaviy yozuvlaringizni saqlayman va tahlil "
+               "qilaman. Qonun talabiga ko'ra buni boshlashdan oldin "
+               "roziligingizni olishim kerak.\n\n"
+               "<b>Nima saqlanadi</b>\n"
+               "Telegram ID va ismingiz, siz yozgan summalar, kategoriyalar, "
+               "izohlar, qarzdorlar ismi, obuna va to'lov tarixi.\n\n"
+               "<b>Qayerda saqlanadi</b>\n"
+               "Yevropadagi ijaraga olingan serverda (Fransiya). Har kuni "
+               "shifrlangan zaxira nusxa olinadi.\n\n"
+               "<b>Kimga uzatiladi</b>\n"
+               "Yozganingizni tushunish uchun matn va chek rasmi "
+               "<b>Anthropic</b> (AQSh) xizmatiga yuboriladi. U yerda "
+               "saqlanmaydi va modelni o'qitishga ishlatilmaydi. Boshqa hech "
+               "kimga berilmaydi va sotilmaydi.\n\n"
+               "<b>Sizning huquqlaringiz</b>\n"
+               "• /csv — barcha ma'lumotingizni yuklab olish\n"
+               "• /ochirish — hisobni va butun tarixni butunlay o'chirish\n"
+               "• /maxfiylik — to'liq siyosat\n"
+               "• /shartlar — xizmat shartlari va to'lov qoidalari\n\n"
+               "<b>Muhim:</b> men moliyaviy maslahat bermayman — faqat "
+               "sizning yozuvlaringizni hisoblab beraman.\n\n"
+               "Davom etish uchun roziligingizni bildiring 👇"),
+        "ru": ("👋 <b>Перед началом</b>\n\n"
+               "Я храню и анализирую ваши финансовые записи. По закону я "
+               "обязан получить ваше согласие до начала обработки.\n\n"
+               "<b>Что хранится</b>\n"
+               "Telegram ID и имя, введённые вами суммы, категории, "
+               "комментарии, имена должников, история подписки и оплат.\n\n"
+               "<b>Где хранится</b>\n"
+               "На арендованном сервере в Европе (Франция). Каждый день "
+               "создаётся зашифрованная резервная копия.\n\n"
+               "<b>Кому передаётся</b>\n"
+               "Чтобы понять написанное, текст и фото чека отправляются в "
+               "сервис <b>Anthropic</b> (США). Там они не сохраняются и не "
+               "используются для обучения модели. Больше никому не "
+               "передаются и не продаются.\n\n"
+               "<b>Ваши права</b>\n"
+               "• /csv — скачать все свои данные\n"
+               "• /ochirish — полностью удалить аккаунт и всю историю\n"
+               "• /maxfiylik — полная политика\n"
+               "• /shartlar — условия сервиса и правила оплаты\n\n"
+               "<b>Важно:</b> я не даю финансовых советов — только считаю "
+               "ваши записи.\n\n"
+               "Чтобы продолжить, подтвердите согласие 👇"),
+    },
+    "consent_yes": {"uz": "✅ Roziman, davom etamiz",
+                    "ru": "✅ Согласен, продолжим"},
+    "consent_privacy": {"uz": "🔒 Maxfiylik", "ru": "🔒 Конфиденциальность"},
+    "consent_terms": {"uz": "📄 Shartlar", "ru": "📄 Условия"},
+    "consent_done": {"uz": "Rahmat! Endi boshlaymiz.",
+                     "ru": "Спасибо! Теперь начнём."},
+    "consent_needed": {
+        "uz": "Avval roziligingiz kerak — /start bosing.",
+        "ru": "Сначала нужно ваше согласие — нажмите /start.",
+    },
+
+    # ---- Xizmat shartlari (ommaviy oferta) ----
+    "terms": {
+        "uz": ("📄 <b>XIZMAT SHARTLARI</b>\n\n"
+               "<b>1. Xizmat nima</b>\n"
+               "«Hisobchi AI» — shaxsiy xarajatlarni yozib borish va hisobot "
+               "olish uchun Telegram boti. Xizmat «bor holicha» taqdim "
+               "etiladi.\n\n"
+               "<b>2. Bepul sinov</b>\n"
+               "Har bir yangi foydalanuvchi {trial} kun bepul foydalanadi. "
+               "Sinov davrida hech qanday to'lov talab qilinmaydi.\n\n"
+               "<b>3. Obuna va to'lov</b>\n"
+               "• Tariflar: /obuna\n"
+               "• To'lov karta o'tkazmasi orqali amalga oshiriladi\n"
+               "• To'lovdan so'ng chek (rasm yoki PDF) yuboriladi\n"
+               "• Administrator tasdiqlagach obuna faollashadi\n"
+               "• Yangi muddat mavjud muddat ustiga qo'shiladi\n"
+               "• To'lov <b>avtomatik yangilanmaydi</b> — har safar o'zingiz "
+               "qaror qilasiz\n\n"
+               "<b>4. Pulni qaytarish</b>\n"
+               "Obuna faollashganidan keyin <b>3 kun ichida</b> xizmatdan "
+               "foydalanmagan bo'lsangiz, to'liq qaytariladi. Undan keyin "
+               "foydalanilmagan kunlar uchun qisman qaytarish ko'rib "
+               "chiqiladi. Murojaat: {contact}\n\n"
+               "<b>5. Xizmat to'xtatilishi</b>\n"
+               "Botni suiiste'mol qilish (avtomatlashtirilgan spam, tizimga "
+               "zarar yetkazishga urinish) aniqlansa, hisob bloklanishi "
+               "mumkin. Bunda qolgan obuna kunlari qaytariladi.\n\n"
+               "<b>6. Aniqlik va javobgarlik</b>\n"
+               "Bot summalarni <b>dastur bilan</b> hisoblaydi, AI faqat "
+               "matnni o'qiydi va kategoriyaga ajratadi. Shunga qaramay xato "
+               "bo'lishi mumkin — muhim qarorlardan oldin sonlarni o'zingiz "
+               "tekshiring. Bot moliyaviy, investitsiya yoki soliq maslahati "
+               "<b>bermaydi</b>. Xizmat ma'lumotlariga tayanib qilingan "
+               "qarorlar uchun javobgarlik foydalanuvchida.\n\n"
+               "<b>7. Ma'lumot va maxfiylik</b>\n"
+               "/maxfiylik da to'liq yozilgan. Istalgan paytda /ochirish "
+               "bilan hammasini o'chira olasiz.\n\n"
+               "<b>8. Shartlar o'zgarishi</b>\n"
+               "Shartlar o'zgarsa, botda xabar beriladi va roziligingiz "
+               "qaytadan so'raladi.\n\n"
+               "<b>Aloqa:</b> {contact}\n"
+               "<i>Versiya: {version}</i>"),
+        "ru": ("📄 <b>УСЛОВИЯ СЕРВИСА</b>\n\n"
+               "<b>1. Что это за сервис</b>\n"
+               "«Hisobchi AI» — Telegram-бот для учёта личных расходов и "
+               "получения отчётов. Сервис предоставляется «как есть».\n\n"
+               "<b>2. Бесплатный период</b>\n"
+               "Каждый новый пользователь получает {trial} дней бесплатно. "
+               "В пробный период оплата не требуется.\n\n"
+               "<b>3. Подписка и оплата</b>\n"
+               "• Тарифы: /obuna\n"
+               "• Оплата производится переводом на карту\n"
+               "• После оплаты отправляется чек (фото или PDF)\n"
+               "• Подписка активируется после подтверждения администратором\n"
+               "• Новый срок добавляется к текущему\n"
+               "• Оплата <b>не продлевается автоматически</b> — вы решаете "
+               "каждый раз сами\n\n"
+               "<b>4. Возврат средств</b>\n"
+               "Если в течение <b>3 дней</b> после активации вы не "
+               "пользовались сервисом — возврат в полном объёме. После "
+               "этого рассматривается частичный возврат за неиспользованные "
+               "дни. Обращение: {contact}\n\n"
+               "<b>5. Прекращение обслуживания</b>\n"
+               "При злоупотреблении (автоматизированный спам, попытки "
+               "навредить системе) аккаунт может быть заблокирован. "
+               "Оставшиеся дни подписки при этом возвращаются.\n\n"
+               "<b>6. Точность и ответственность</b>\n"
+               "Суммы считает <b>программа</b>, ИИ только читает текст и "
+               "распределяет по категориям. Тем не менее ошибки возможны — "
+               "проверяйте цифры перед важными решениями. Бот <b>не даёт</b> "
+               "финансовых, инвестиционных или налоговых советов. "
+               "Ответственность за решения, принятые на основе данных "
+               "сервиса, лежит на пользователе.\n\n"
+               "<b>7. Данные и конфиденциальность</b>\n"
+               "Подробно в /maxfiylik. В любой момент можете удалить всё "
+               "через /ochirish.\n\n"
+               "<b>8. Изменение условий</b>\n"
+               "При изменении условий бот сообщит об этом и заново запросит "
+               "ваше согласие.\n\n"
+               "<b>Контакт:</b> {contact}\n"
+               "<i>Версия: {version}</i>"),
+    },
+
+    # ---- Maxfiylik siyosati ----
+    "privacy": {
+        "uz": ("🔒 <b>MAXFIYLIK SIYOSATI</b>\n\n"
+               "<b>Qanday ma'lumot saqlanadi</b>\n"
+               "• Telegram ID, ismingiz va username\n"
+               "• Siz yozgan xarajat/kirim yozuvlari: summa, kategoriya, "
+               "izoh, sana\n"
+               "• Qarz yozuvlarida siz ko'rsatgan shaxs ismi\n"
+               "• Obuna muddati va to'lov tarixi\n\n"
+               "<b>Chek rasmlari</b>\n"
+               "Chek suratini yuborsangiz, u <b>faqat o'qish uchun</b> "
+               "Anthropic (AQSh) serveriga yuboriladi. Rasm bizda ham, u "
+               "yerda ham saqlanmaydi — o'qilgandan keyin darhol o'chadi. "
+               "Faqat undan chiqqan <b>matnli yozuvlar</b> sizning "
+               "bazangizda qoladi.\n\n"
+               "Yozgan matnlaringiz ham xuddi shu tarzda tahlil uchun "
+               "yuboriladi. Anthropic bu ma'lumotni modelni o'qitishga "
+               "ishlatmaydi.\n\n"
+               "<b>Kim ko'ra oladi</b>\n"
+               "• Siz — bot va boshqaruv paneli orqali\n"
+               "• Texnik xizmat ko'rsatuvchi administrator — nosozlikni "
+               "tuzatish uchun\n"
+               "• Boshqa foydalanuvchilar sizning ma'lumotingizni "
+               "<b>hech qachon</b> ko'rmaydi. Har bir yozuv Telegram ID "
+               "bo'yicha ajratilgan.\n\n"
+               "<b>Qayerda saqlanadi</b>\n"
+               "Fransiyadagi ijaraga olingan serverda (Contabo). Kirish "
+               "faqat SSH kaliti orqali, parol bilan kirish o'chirilgan. "
+               "Har kuni AES-256 bilan shifrlangan zaxira nusxa olinadi.\n\n"
+               "<b>Qancha saqlanadi</b>\n"
+               "Siz o'chirmaguningizcha. /ochirish bosilganda darhol va "
+               "butunlay o'chiriladi; zaxira nusxalar 14 kun ichida "
+               "almashib ketadi.\n\n"
+               "<b>Sizning huquqlaringiz</b>\n"
+               "• /csv — barcha ma'lumotingizni fayl qilib olish\n"
+               "• /ochirish — hisobni va butun tarixni butunlay o'chirish "
+               "(darhol va qaytarib bo'lmaydigan tarzda)\n"
+               "• Roziligingizni istalgan paytda qaytarib olishingiz "
+               "mumkin — buning uchun /ochirish bosing\n\n"
+               "<b>To'lov</b>\n"
+               "Karta ma'lumotlaringiz bizga kelmaydi. Siz o'zingiz "
+               "o'tkazma qilasiz va faqat chek skrinshotini yuborasiz.\n\n"
+               "Savol: {contact}"),
+        "ru": ("🔒 <b>ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ</b>\n\n"
+               "<b>Какие данные хранятся</b>\n"
+               "• Telegram ID, имя и username\n"
+               "• Ваши записи расходов/доходов: сумма, категория, "
+               "комментарий, дата\n"
+               "• Имя человека, указанное в записях о долге\n"
+               "• Срок подписки и история оплат\n\n"
+               "<b>Фото чеков</b>\n"
+               "Отправленное фото чека передаётся на сервер Anthropic (США) "
+               "<b>только для распознавания</b>. Изображение не хранится ни "
+               "у нас, ни там — удаляется сразу после прочтения. В вашей "
+               "базе остаются только полученные <b>текстовые записи</b>.\n\n"
+               "Ваши текстовые сообщения передаются на анализ так же. "
+               "Anthropic не использует эти данные для обучения модели.\n\n"
+               "<b>Кто может видеть</b>\n"
+               "• Вы — через бот и панель управления\n"
+               "• Администратор технической поддержки — для устранения "
+               "неполадок\n"
+               "• Другие пользователи <b>никогда</b> не видят ваши данные. "
+               "Все записи разделены по Telegram ID.\n\n"
+               "<b>Где хранится</b>\n"
+               "На арендованном сервере во Франции (Contabo). Доступ только "
+               "по SSH-ключу, вход по паролю отключён. Каждый день "
+               "создаётся резервная копия с шифрованием AES-256.\n\n"
+               "<b>Сколько хранится</b>\n"
+               "Пока вы сами не удалите. По команде /ochirish данные "
+               "удаляются немедленно и полностью; резервные копии "
+               "перезаписываются в течение 14 дней.\n\n"
+               "<b>Ваши права</b>\n"
+               "• /csv — выгрузить все свои данные файлом\n"
+               "• /ochirish — полностью удалить аккаунт и всю историю "
+               "(сразу и безвозвратно)\n"
+               "• Вы можете отозвать согласие в любой момент — для этого "
+               "нажмите /ochirish\n\n"
+               "<b>Оплата</b>\n"
+               "Данные вашей карты к нам не попадают. Перевод вы делаете "
+               "сами и присылаете только скриншот чека.\n\n"
+               "Вопросы: {contact}"),
+    },
+
+    # ---- Ketma-ket kunlar (streak) ----
+    "streak_grew": {
+        "uz": "🔥 Ketma-ket {n} kun yozyapsiz!",
+        "ru": "🔥 {n} дней подряд ведёте учёт!",
+    },
+    "streak_record": {
+        "uz": "🏆 Yangi rekord: ketma-ket {n} kun!",
+        "ru": "🏆 Новый рекорд: {n} дней подряд!",
+    },
+    "streak_7": {
+        "uz": ("🎉 <b>Bir hafta to'xtovsiz!</b>\n"
+               "Odat shakllanishi shu yerdan boshlanadi. Davom eting."),
+        "ru": ("🎉 <b>Неделя без пропусков!</b>\n"
+               "Именно так формируется привычка. Продолжайте."),
+    },
+    "streak_30": {
+        "uz": ("🏅 <b>30 kun ketma-ket!</b>\n"
+               "Endi bu odat. /oy bosib bir oylik manzarani ko'ring."),
+        "ru": ("🏅 <b>30 дней подряд!</b>\n"
+               "Теперь это привычка. Нажмите /oy и посмотрите картину "
+               "за месяц."),
+    },
+    "streak_100": {
+        "uz": "💎 <b>100 kun!</b> Bu allaqachon jiddiy natija. Tabriklayman!",
+        "ru": "💎 <b>100 дней!</b> Это уже серьёзный результат. Поздравляю!",
+    },
+    "entries_milestone": {
+        "uz": ("✨ <b>{n}-yozuv!</b> Endi ma'lumot yetarli — "
+               "«{btn}» bosib manzarani ko'ring."),
+        "ru": ("✨ <b>{n}-я запись!</b> Данных уже достаточно — "
+               "нажмите «{btn}» и посмотрите картину."),
+    },
+
+    # ---- Haftalik xulosa ----
+    "digest_head": {
+        "uz": "📬 <b>Haftalik xulosa</b>\n<i>{start} — {end}</i>",
+        "ru": "📬 <b>Итоги недели</b>\n<i>{start} — {end}</i>",
+    },
+    "digest_body": {
+        "uz": "\n\n💸 Chiqim: <b>{spent}</b>\n🧾 Yozuvlar: {count} ta",
+        "ru": "\n\n💸 Расходы: <b>{spent}</b>\n🧾 Записей: {count}",
+    },
+    "digest_less": {
+        "uz": "\n📉 O'tgan haftadan <b>{pct}% kam</b> — barakalla!",
+        "ru": "\n📉 На <b>{pct}% меньше</b>, чем на прошлой неделе — отлично!",
+    },
+    "digest_more": {
+        "uz": "\n📈 O'tgan haftadan <b>{pct}% ko'p</b>.",
+        "ru": "\n📈 На <b>{pct}% больше</b>, чем на прошлой неделе.",
+    },
+    "digest_top": {"uz": "\n\n<b>Eng ko'p sarflangan:</b>",
+                   "ru": "\n\n<b>Больше всего потрачено:</b>"},
+    "digest_streak": {
+        "uz": "\n\n🔥 Ketma-ket {n} kun. Zanjirni uzmang!",
+        "ru": "\n\n🔥 {n} дней подряд. Не прерывайте цепочку!",
+    },
+    "digest_tip": {
+        "uz": "\n\n💡 Byudjet qo'ysangiz, chegaraga yaqinlashganda "
+              "ogohlantiraman: /byudjet",
+        "ru": "\n\n💡 Поставьте бюджет — предупрежу при приближении "
+              "к лимиту: /byudjet",
+    },
+
+    # ---- Qaytarish xabari ----
+    "winback": {
+        "uz": ("👋 Ancha vaqtdan beri yozmadingiz — {days} kun bo'ldi.\n\n"
+               "Yozilmagan xarajat — ko'rinmaydigan xarajat. Bugungisini "
+               "bitta xabar bilan tiklab qo'ying:\n\n"
+               "<code>obedga 45 ming</code>\n\n"
+               "Obunangiz hali faol, bemalol foydalaning."),
+        "ru": ("👋 Вы давно не записывали — прошло {days} дней.\n\n"
+               "Незаписанный расход — незаметный расход. Восстановите "
+               "сегодняшний одним сообщением:\n\n"
+               "<code>обед 45 тысяч</code>\n\n"
+               "Подписка ещё активна, пользуйтесь спокойно."),
+    },
+    "winback_best": {
+        "uz": "\n\n🔥 Eng uzun zanjiringiz — {n} kun. Yangisini boshlaymizmi?",
+        "ru": "\n\n🔥 Ваша лучшая серия — {n} дней. Начнём новую?",
+    },
 }
 
 

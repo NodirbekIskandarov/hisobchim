@@ -123,6 +123,17 @@ TABLE_MIGRATIONS = [
     ("users", "warned_stage",
      "ALTER TABLE users ADD COLUMN warned_stage INTEGER NOT NULL DEFAULT 0"),
     ("users", "lang", "ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT 'uz'"),
+    # Shartlar va maxfiylik siyosatiga rozilik. Qonun bo'yicha shaxsga
+    # doir ma'lumotni ishlashdan OLDIN rozilik olinishi shart.
+    ("users", "consent_at", "ALTER TABLE users ADD COLUMN consent_at TEXT"),
+    ("users", "consent_version",
+     "ALTER TABLE users ADD COLUMN consent_version TEXT NOT NULL DEFAULT ''"),
+    # Marketing: ketma-ket faol kunlar va oxirgi yozuv kuni.
+    ("users", "streak", "ALTER TABLE users ADD COLUMN streak INTEGER NOT NULL DEFAULT 0"),
+    ("users", "best_streak",
+     "ALTER TABLE users ADD COLUMN best_streak INTEGER NOT NULL DEFAULT 0"),
+    ("users", "last_entry_day", "ALTER TABLE users ADD COLUMN last_entry_day TEXT"),
+    ("users", "winback_at", "ALTER TABLE users ADD COLUMN winback_at TEXT"),
     # Yozuv kiritilgan paytdagi kurs va asosiy valyutadagi qiymati.
     # Shu ikkisi bo'lgani uchun so'm va dollar bitta jamlanmada qo'shiladi.
     ("transactions", "rate", "ALTER TABLE transactions ADD COLUMN rate REAL NOT NULL DEFAULT 1"),
@@ -868,6 +879,143 @@ def mark_budget_notified(user_id: int, category: str, currency: str, tag: str) -
 # --------------------------------------------------------------------------- #
 # Eslatmalar va muddat ogohlantirishi
 # --------------------------------------------------------------------------- #
+
+def has_consent(user_id: int, version: str) -> bool:
+    """Foydalanuvchi shartlarning shu versiyasiga rozi bo'lganmi."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT consent_at, consent_version FROM users WHERE user_id = ?",
+            (user_id,)).fetchone()
+    return bool(row and row["consent_at"] and row["consent_version"] == version)
+
+
+def set_consent(user_id: int, version: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE users SET consent_at = ?, consent_version = ? WHERE user_id = ?",
+            (_now_local(), version, user_id))
+
+
+def tx_count(user_id: int) -> int:
+    """Foydalanuvchining jami yozuvlari soni — barcha qatorni o'qimasdan."""
+    with get_conn() as conn:
+        return int(conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE user_id = ?",
+            (user_id,)).fetchone()[0])
+
+
+def touch_streak(user_id: int) -> dict:
+    """Yozuv qo'shilganda ketma-ket kunlar hisobini yangilaydi.
+
+    Qaytaradi: {"streak", "best", "grew"} — `grew` bugun birinchi yozuv
+    bo'lgani va zanjir uzunlashganini bildiradi.
+    """
+    today = datetime.now(config.TZ).date()
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT streak, best_streak, last_entry_day FROM users WHERE user_id = ?",
+            (user_id,)).fetchone()
+        if row is None:
+            return {"streak": 0, "best": 0, "grew": False}
+
+        last = row["last_entry_day"]
+        streak = row["streak"] or 0
+        best = row["best_streak"] or 0
+
+        if last == today.isoformat():
+            return {"streak": streak, "best": best, "grew": False}
+
+        yesterday = (today - timedelta(days=1)).isoformat()
+        # Kecha ham yozgan bo'lsa zanjir davom etadi, aks holda yangidan boshlanadi.
+        streak = streak + 1 if last == yesterday else 1
+        best = max(best, streak)
+        conn.execute(
+            "UPDATE users SET streak = ?, best_streak = ?, last_entry_day = ? "
+            "WHERE user_id = ?", (streak, best, today.isoformat(), user_id))
+    return {"streak": streak, "best": best, "grew": True}
+
+
+def users_for_winback(days: int = 7) -> list[dict]:
+    """Bir muddat yozmagan, lekin kirish huquqi bor foydalanuvchilar.
+
+    Har bir odamga oyiga bir martadan ko'p yozmaymiz — bezdirmaslik uchun.
+    """
+    now = datetime.now(config.TZ)
+    cutoff = (now - timedelta(days=days)).date().isoformat()
+    month_ago = (now - timedelta(days=30)).isoformat()
+    out = []
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT u.*, (SELECT MAX(occurred_on) FROM transactions t
+                            WHERE t.user_id = u.user_id) AS last_tx
+               FROM users u WHERE u.blocked = 0""").fetchall()
+    for r in rows:
+        if r["user_id"] in config.OWNER_IDS:
+            continue
+        sub = _parse_dt(r["subscribed_until"])
+        trial = _parse_dt(r["trial_ends_at"])
+        if not ((sub and sub > now) or (trial and trial > now)):
+            continue                      # muddati tugaganlarga alohida xabar bor
+        if not r["last_tx"] or r["last_tx"] > cutoff:
+            continue                      # yaqinda yozgan
+        if r["winback_at"] and r["winback_at"] > month_ago:
+            continue                      # yaqinda eslatilgan
+        out.append({"user_id": r["user_id"], "first_name": r["first_name"],
+                    "last_tx": r["last_tx"], "streak": r["best_streak"] or 0})
+    return out
+
+
+def users_for_digest() -> list[dict]:
+    """Haftalik xulosa yuboriladiganlar: kirish huquqi bor, bloklanmaganlar.
+
+    Yozuvi bo'lmaganlarga xulosa yuborilmaydi — buni chaqiruvchi
+    `week_summary` natijasi bo'yicha hal qiladi.
+    """
+    now = datetime.now(config.TZ)
+    out = []
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall()
+    for r in rows:
+        sub = _parse_dt(r["subscribed_until"])
+        trial = _parse_dt(r["trial_ends_at"])
+        if r["user_id"] in config.OWNER_IDS or (sub and sub > now) \
+                or (trial and trial > now):
+            out.append({"user_id": r["user_id"], "streak": r["streak"] or 0})
+    return out
+
+
+def mark_winback(user_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET winback_at = ? WHERE user_id = ?",
+                     (_now_local(), user_id))
+
+
+def week_summary(user_id: int) -> dict:
+    """Haftalik xulosa: shu hafta va o'tgan hafta taqqoslamasi."""
+    today = datetime.now(config.TZ).date()
+    this_start = today - timedelta(days=today.weekday())
+    prev_start = this_start - timedelta(days=7)
+    prev_end = this_start - timedelta(days=1)
+
+    def spent(start, end):
+        with get_conn() as conn:
+            return float(conn.execute(
+                "SELECT COALESCE(SUM(amount_base), 0) FROM transactions "
+                "WHERE user_id = ? AND kind = ? AND occurred_on BETWEEN ? AND ?",
+                (user_id, config.KIND_CHIQIM, start.isoformat(), end.isoformat())
+            ).fetchone()[0])
+
+    now_spent = spent(this_start, today)
+    was_spent = spent(prev_start, prev_end)
+    top = by_category_unified(user_id, this_start, today, config.KIND_CHIQIM)
+    with get_conn() as conn:
+        count = int(conn.execute(
+            "SELECT COUNT(*) FROM transactions WHERE user_id = ? "
+            "AND occurred_on BETWEEN ? AND ?",
+            (user_id, this_start.isoformat(), today.isoformat())).fetchone()[0])
+    return {"spent": now_spent, "previous": was_spent, "count": count,
+            "top": top[:3], "start": this_start, "end": today}
+
 
 def get_lang(user_id: int) -> str:
     with get_conn() as conn:

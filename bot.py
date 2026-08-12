@@ -12,7 +12,7 @@ import io
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from functools import wraps
 from urllib.parse import quote
 
@@ -270,8 +270,49 @@ async def _deny(msg, user, access) -> None:
         )
 
 
+def skip_consent(func):
+    """Rozilik olinmagan bo'lsa ham ishlaydigan buyruqlar uchun.
+
+    Maxfiylik, shartlar, til va hisobni o'chirish — rozilikdan oldin ham
+    ochiq bo'lishi shart, aks holda odam nimaga rozi bo'layotganini
+    o'qiy olmaydi va fikridan qayta olmaydi.
+    """
+    func._skip_consent = True
+    return func
+
+
+def consent_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(i18n.t(lang, "consent_yes"), callback_data="ok:yes")],
+        [InlineKeyboardButton(i18n.t(lang, "consent_privacy"),
+                              callback_data="ok:privacy"),
+         InlineKeyboardButton(i18n.t(lang, "consent_terms"),
+                              callback_data="ok:terms")],
+    ])
+
+
+async def _consent_ok(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Rozilik olinmagan bo'lsa so'raydi va False qaytaradi.
+
+    Shaxsiy ma'lumotni qayta ishlashdan OLDIN chaqiriladi.
+    """
+    user = update.effective_user
+    if db.has_consent(user.id, CONSENT_VERSION):
+        return True
+    msg = update.effective_message
+    if msg is not None:
+        lang = lang_of(user.id, context)
+        await msg.reply_text(i18n.cyr(lang, i18n.t(lang, "consent")),
+                             parse_mode=ParseMode.HTML,
+                             reply_markup=consent_keyboard(lang))
+    return False
+
+
 def private_only(func):
-    """Kirish nazorati: ega — cheksiz; boshqalar — bepul sinov yoki obuna."""
+    """Kirish nazorati: ega — cheksiz; boshqalar — bepul sinov yoki obuna.
+
+    Kirish huquqidan keyin roziligi ham tekshiriladi.
+    """
     @wraps(func)
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
@@ -280,11 +321,15 @@ def private_only(func):
         access = db.access_status(user.id, user.first_name or "", user.username)
         context.user_data["access"] = access
 
-        if access["ok"]:
-            return await func(update, context)
+        if not access["ok"]:
+            await _deny(update.effective_message, user, access)
+            return
 
-        await _deny(update.effective_message, user, access)
-        return
+        if not getattr(func, "_skip_consent", False) \
+                and not await _consent_ok(update, context):
+            return
+
+        return await func(update, context)
 
     return wrapper
 
@@ -514,15 +559,21 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     access = db.access_status(user.id, user.first_name or "", user.username)
     context.user_data["access"] = access
 
-    # Taklif havolasi: /start ref12345
-    payload = (context.args or [""])[0] if context.args else ""
-    if payload:
-        await _apply_referral(update, context, payload)
-        access = db.access_status(user.id)
-
     if not access["ok"]:
         await _deny(update.effective_message, user, access)
         return
+
+    # Rozilik olinmaguncha hech narsa qayta ishlanmaydi — taklif bonusi ham.
+    payload = (context.args or [""])[0] if context.args else ""
+    if not db.has_consent(user.id, CONSENT_VERSION):
+        if payload:
+            context.user_data["pending_ref"] = payload
+        await _consent_ok(update, context)
+        return
+
+    if payload:                            # taklif havolasi: /start ref12345
+        await _apply_referral(update, context, payload)
+        access = db.access_status(user.id)
 
     lang = lang_of(user.id, context)
     is_new = len(db.all_rows(user.id)) == 0
@@ -554,6 +605,50 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
         text, parse_mode=ParseMode.HTML, reply_markup=main_menu(lang_of(update.effective_user.id, context))
     )
+
+
+async def on_consent_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """«Roziman» / «Maxfiylik» / «Shartlar» tugmalari."""
+    query = update.callback_query
+    user = update.effective_user
+    lang = lang_of(user.id, context)
+    action = (query.data or "ok:").split(":", 1)[1]
+
+    if action == "privacy":
+        await query.answer()
+        await query.message.reply_text(
+            i18n.t(lang, "privacy", contact=reports.esc(_support_contact())),
+            parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        return
+
+    if action == "terms":
+        await query.answer()
+        await query.message.reply_text(
+            i18n.t(lang, "terms", trial=config.TRIAL_DAYS,
+                   contact=reports.esc(_support_contact()),
+                   version=CONSENT_VERSION),
+            parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        return
+
+    if action != "yes":
+        await query.answer()
+        return
+
+    db.set_consent(user.id, CONSENT_VERSION)
+    log.info("Rozilik olindi: id=%s versiya=%s", user.id, CONSENT_VERSION)
+    await query.answer(i18n.t(lang, "consent_done"))
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    # Rozilikdan oldin kelgan taklif havolasi endi qo'llanadi.
+    payload = context.user_data.pop("pending_ref", "")
+    if payload:
+        await _apply_referral(update, context, payload)
+
+    context.args = []
+    await cmd_start(update, context)
 
 
 async def on_try_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -689,6 +784,7 @@ async def cmd_settle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @private_only
+@skip_consent            # o'z ma'lumotini olish — rozilikka bog'liq bo'lmagan huquq
 async def cmd_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _send_csv(update, context, update.effective_user.id)
 
@@ -918,6 +1014,8 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
         reply_markup=receipt_keyboard(receipt_id),
     )
 
+    await _celebrate(update, context, message, len(data["mahsulotlar"]))
+
 
 async def _flush_album(key: str, update: Update, context):
     """Albomdagi barcha rasmlar kelib bo'lgach, ularni birgalikda tahlil qiladi."""
@@ -949,6 +1047,8 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["access"] = access
     if not access["ok"]:
         await _deny(message, user, access)
+        return
+    if not await _consent_ok(update, context):
         return
 
     try:
@@ -1147,6 +1247,52 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if touched:
         await check_budget_alerts(context, user_id, touched)
 
+    await _celebrate(update, context, message, len(saved_ids))
+
+
+# Nishonlanadigan bosqichlar. Har kuni emas — kamdan-kam bo'lgani uchun
+# quvontiradi; har safar bo'lsa bezdiradi.
+STREAK_MILESTONES = {7: "streak_7", 30: "streak_30", 100: "streak_100"}
+ENTRY_MILESTONES = (10, 50, 100, 500, 1000)
+
+
+async def _celebrate(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                     message, added: int) -> None:
+    """Zanjir va bosqichlarni nishonlaydi.
+
+    Marketing emas — odat shakllantirish: odam nima uchun davom
+    etayotganini ko'rib tursa, tashlab ketmaydi. Xato bo'lsa ham asosiy
+    javobga ta'sir qilmasligi kerak.
+    """
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    try:
+        streak = db.touch_streak(user_id)
+        lines = []
+
+        key = STREAK_MILESTONES.get(streak["streak"])
+        if streak["grew"] and key:
+            lines.append(i18n.t(lang, key))
+        elif streak["grew"] and streak["streak"] >= 3:
+            if streak["streak"] == streak["best"] and streak["streak"] > 3:
+                lines.append(i18n.t(lang, "streak_record", n=streak["streak"]))
+            else:
+                lines.append(i18n.t(lang, "streak_grew", n=streak["streak"]))
+
+        total = db.tx_count(user_id)
+        # Bitta xabarda bir nechta yozuv bo'lishi mumkin — bosqichdan
+        # «sakrab o'tib ketmasligi» uchun oraliqni tekshiramiz.
+        for mark in ENTRY_MILESTONES:
+            if total - added < mark <= total:
+                lines.append(i18n.t(lang, "entries_milestone", n=mark,
+                                    btn=i18n.btn(lang, "month")))
+                break
+
+        if lines:
+            await message.reply_text("\n\n".join(lines), parse_mode=ParseMode.HTML)
+    except Exception:
+        log.exception("Zanjir/bosqich xabarida xatolik")
+
 
 # --------------------------------------------------------------------------- #
 # Tugmalar
@@ -1186,6 +1332,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("lang:"):
         await on_lang_callback(update, context)
         return
+    # Rozilik tugmalari — rozilik darvozasining o'zi, undan oldin keladi.
+    if data.startswith("ok:"):
+        await on_consent_callback(update, context)
+        return
 
     # Boshqa hamma tugma uchun bot bilan bir xil kirish qoidasi.
     access = db.access_status(user_id, user.first_name or "", user.username)
@@ -1194,6 +1344,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Obuna muddati tugagan." if access["status"] == "expired" else "Ruxsat yo'q.",
             show_alert=True,
         )
+        return
+
+    if not db.has_consent(user_id, CONSENT_VERSION):
+        await query.answer(i18n.t(lang_of(user_id, context), "consent_needed"),
+                           show_alert=True)
         return
 
     if data.startswith("rem:"):
@@ -1446,6 +1601,12 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer("Tarif topilmadi", show_alert=True)
         return
 
+    # To'lov so'rovi ham shaxsiy ma'lumot — rozilikdan oldin yaratilmaydi.
+    if not db.has_consent(user.id, CONSENT_VERSION):
+        await query.answer(i18n.t(lang, "consent_needed"), show_alert=True)
+        await _consent_ok(update, context)
+        return
+
     request_id = db.add_subscription_request(user.id, plan["code"], plan["price"])
     # Endi shu foydalanuvchidan keladigan rasm chek deb qabul qilinadi.
     _awaiting_proof.set(user.id, request_id)
@@ -1552,43 +1713,19 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
 # Ma'lumot huquqlari: maxfiylik va hisobni o'chirish
 # --------------------------------------------------------------------------- #
 
-PRIVACY_TEXT = """🔒 <b>MAXFIYLIK SIYOSATI</b>
+# Shartlar o'zgarsa bu raqam oshiriladi va roziligi eskirganlardan
+# qaytadan so'raladi.
+CONSENT_VERSION = "2026-08-1"
 
-<b>Qanday ma'lumot saqlanadi</b>
-• Telegram ID, ismingiz va username
-• Siz yozgan xarajat/kirim yozuvlari: summa, kategoriya, izoh, sana
-• Qarz yozuvlarida siz ko'rsatgan shaxs ismi
-• Obuna muddati va to'lov tarixi
-
-<b>Chek rasmlari</b>
-Chek suratini yuborsangiz, u <b>faqat o'qish uchun</b> Anthropic (AQSh)
-serveriga yuboriladi. Rasm bizda ham, u yerda ham saqlanmaydi —
-o'qilgandan keyin darhol o'chadi. Faqat undan chiqqan <b>matnli
-yozuvlar</b> sizning bazangizda qoladi.
-
-Yozgan matnlaringiz ham xuddi shu tarzda tahlil uchun yuboriladi.
-Anthropic bu ma'lumotni modelni o'qitishga ishlatmaydi.
-
-<b>Kim ko'ra oladi</b>
-• Siz — bot va boshqaruv paneli orqali
-• Texnik xizmat ko'rsatuvchi administrator — nosozlikni tuzatish uchun
-• Boshqa foydalanuvchilar sizning ma'lumotingizni <b>hech qachon</b>
-  ko'rmaydi. Har bir yozuv Telegram ID bo'yicha ajratilgan.
-
-<b>Qayerda saqlanadi</b>
-O'zbekistondan tashqaridagi ijaraga olingan serverda, kirish faqat
-kalit orqali. Har kuni shifrlangan zaxira nusxa olinadi.
-
-<b>Sizning huquqlaringiz</b>
-• /csv — barcha ma'lumotingizni fayl qilib olish
-• /ochirish — hisobni va butun tarixni butunlay o'chirish
-  (darhol va qaytarib bo'lmaydigan tarzda)
-
-<b>To'lov</b>
-Karta ma'lumotlaringiz bizga kelmaydi. Siz o'zingiz o'tkazma qilasiz
-va faqat chek skrinshotini yuborasiz.
-
-Savol: {contact}"""
+@skip_consent
+async def cmd_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/shartlar — ommaviy oferta. Kirish chegarasidan tashqarida."""
+    lang = lang_of(update.effective_user.id, context)
+    await update.effective_message.reply_text(
+        i18n.t(lang, "terms", trial=config.TRIAL_DAYS,
+               contact=reports.esc(_support_contact()),
+               version=CONSENT_VERSION),
+        parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
 @private_only
@@ -1677,11 +1814,12 @@ async def on_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu(code))
 
 
+@skip_consent
 async def cmd_privacy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Maxfiylik siyosati — kirish chegarasidan tashqarida."""
     lang = lang_of(update.effective_user.id, context)
     await update.effective_message.reply_text(
-        i18n.cyr(lang, PRIVACY_TEXT).format(contact=reports.esc(_support_contact())),
+        i18n.t(lang, "privacy", contact=reports.esc(_support_contact())),
         parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
@@ -2138,6 +2276,75 @@ async def job_expiry_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("Muddat ogohlantirishi: %s ta yuborildi", sent)
 
 
+async def job_weekly_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Dushanba ertalab — o'tgan hafta bilan taqqoslangan qisqa xulosa.
+
+    Botni eslatadigan, lekin foydali xabar: reklama emas, o'z sonlaringiz.
+    """
+    sent = 0
+    for row in db.users_for_digest():
+        user_id = row["user_id"]
+        try:
+            s = db.week_summary(user_id)
+            if not s["count"]:
+                continue                   # bo'sh haftaga xabar yubormaymiz
+            lang = lang_of(user_id)
+            text = i18n.t(lang, "digest_head",
+                          start=s["start"].strftime("%d.%m"),
+                          end=s["end"].strftime("%d.%m"))
+            text += i18n.t(lang, "digest_body",
+                           spent=reports.fmt_money(s["spent"]), count=s["count"])
+            if s["previous"] > 0:
+                diff = (s["spent"] - s["previous"]) / s["previous"] * 100
+                if diff <= -5:
+                    text += i18n.t(lang, "digest_less", pct=abs(round(diff)))
+                elif diff >= 5:
+                    text += i18n.t(lang, "digest_more", pct=round(diff))
+            if s["top"]:
+                text += i18n.t(lang, "digest_top")
+                for name, total, _ in s["top"]:
+                    text += (f"\n• {reports.esc(name)} — "
+                             f"{reports.fmt_money(total)}")
+            if row["streak"] >= 3:
+                text += i18n.t(lang, "digest_streak", n=row["streak"])
+            if not db.list_budgets(user_id):
+                text += i18n.t(lang, "digest_tip")
+            await context.bot.send_message(user_id, text,
+                                           parse_mode=ParseMode.HTML)
+            sent += 1
+        except Exception:
+            log.info("Haftalik xulosa yuborilmadi: %s", user_id)
+        await asyncio.sleep(0.06)
+    log.info("Haftalik xulosa: %s ta yuborildi", sent)
+
+
+async def job_winback(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Bir hafta yozmaganlarga bitta eslatma — oyiga bir martadan ko'p emas."""
+    rows = db.users_for_winback(config.WINBACK_DAYS)
+    if not rows:
+        return
+    today = datetime.now(config.TZ).date()
+    sent = 0
+    for r in rows:
+        try:
+            lang = lang_of(r["user_id"])
+            try:
+                gap = (today - date.fromisoformat(r["last_tx"])).days
+            except (TypeError, ValueError):
+                gap = config.WINBACK_DAYS
+            text = i18n.t(lang, "winback", days=gap)
+            if r["streak"] >= 3:
+                text += i18n.t(lang, "winback_best", n=r["streak"])
+            await context.bot.send_message(r["user_id"], text,
+                                           parse_mode=ParseMode.HTML)
+            db.mark_winback(r["user_id"])
+            sent += 1
+        except Exception:
+            log.info("Qaytarish xabari yuborilmadi: %s", r["user_id"])
+        await asyncio.sleep(0.06)
+    log.info("Qaytarish xabari: %s ta yuborildi", sent)
+
+
 def schedule_jobs(app: Application) -> None:
     """Vaqtga bog'liq vazifalarni ro'yxatga oladi."""
     jq = app.job_queue
@@ -2161,8 +2368,19 @@ def schedule_jobs(app: Application) -> None:
                               "timezone": config.TZ},
                   name="kurs-yangilash")
     jq.run_once(job_refresh_rates, when=5, name="kurs-boshlangich")
+    # Dushanba ertalab — o'tgan hafta xulosasi.
+    jq.run_custom(job_weekly_digest,
+                  job_kwargs={"trigger": "cron", "day_of_week": "mon",
+                              "hour": 9, "minute": 30, "timezone": config.TZ},
+                  name="haftalik-xulosa")
+    # Har kuni tushda — bir hafta yozmaganlarga bitta eslatma.
+    jq.run_custom(job_winback,
+                  job_kwargs={"trigger": "cron", "hour": 12, "minute": 0,
+                              "timezone": config.TZ},
+                  name="qaytarish")
     log.info("Rejalashtirilgan vazifalar yoqildi: eslatma (har soat), "
-             "muddat ogohlantirishi (10:00)")
+             "muddat ogohlantirishi (10:00), haftalik xulosa (dushanba 9:30), "
+             "qaytarish (12:00)")
 
 
 # --------------------------------------------------------------------------- #
@@ -2192,8 +2410,29 @@ BOT_COMMANDS = [
     ("taklif", "Do'st taklif qilib bepul kun olish"),
     ("til", "Til / Язык"),
     ("maxfiylik", "Maxfiylik siyosati"),
+    ("shartlar", "Xizmat shartlari"),
     ("ochirish", "Hisobni butunlay o'chirish"),
 ]
+
+# Botni birinchi ochganda «Start» tugmasi ustida ko'rinadi. Odam bu yerda
+# qoladimi yoki chiqib ketadimi — shu matn hal qiladi.
+BOT_DESCRIPTION = (
+    "Xarajatlaringizni oddiy tilda yozing — qolganini men qilaman.\n\n"
+    "«obedga 45 ming» deb yozsangiz kifoya: summani ajrataman, "
+    "kategoriyaga qo'yaman va istalgan payt hisobot beraman.\n\n"
+    "• Chek suratini yuborsangiz — har bir mahsulotni o'qib chiqaman\n"
+    "• Kunlik, haftalik, oylik va yillik hisobot\n"
+    "• Byudjet qo'ying — chegaraga yaqinlashganda ogohlantiraman\n"
+    "• Qarz berdim/oldim — kimga qancha, esdan chiqmaydi\n"
+    "• So'm va dollar bitta hisobda birlashadi\n\n"
+    "Birinchi 7 kun bepul. Boshlash uchun «Start» bosing."
+)
+
+# Chat ro'yxatida va qidiruvda ko'rinadigan qisqa matn (120 belgigacha).
+BOT_SHORT_DESCRIPTION = (
+    "Xarajatlaringizni oddiy tilda yozing — men hisoblab, "
+    "hisobot qilib beraman. 7 kun bepul."
+)
 
 # Faqat bot egasining «/» menyusida ko'rinadigan buyruqlar.
 # Admin boshqaruvi web panelga ko'chirildi — bu yerda faqat /panel qoldi.
@@ -2208,6 +2447,18 @@ async def _post_init(app: Application) -> None:
     from telegram import BotCommand, BotCommandScopeChat
 
     await app.bot.set_my_commands([BotCommand(c, d) for c, d in BOT_COMMANDS])
+
+    # Profil matnlari — Telegram ularni keshlaydi, faqat o'zgargani yuboriladi.
+    try:
+        if (await app.bot.get_my_description()).description != BOT_DESCRIPTION:
+            await app.bot.set_my_description(BOT_DESCRIPTION)
+            log.info("Bot tavsifi yangilandi")
+        short = (await app.bot.get_my_short_description()).short_description
+        if short != BOT_SHORT_DESCRIPTION:
+            await app.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
+            log.info("Bot qisqa tavsifi yangilandi")
+    except Exception as exc:
+        log.warning("Bot tavsifini o'rnatib bo'lmadi: %s", exc)
 
     # Egaga qo'shimcha buyruqlar ko'rinadi (/id va admin buyruqlari).
     owner_cmds = [BotCommand(c, d) for c, d in OWNER_COMMANDS]
@@ -2304,6 +2555,7 @@ def main() -> None:
     app.add_handler(CommandHandler("panel", cmd_panel))
     app.add_handler(CommandHandler(["til", "lang", "yazyk"], cmd_lang))
     app.add_handler(CommandHandler(["maxfiylik", "privacy"], cmd_privacy))
+    app.add_handler(CommandHandler(["shartlar", "oferta", "terms"], cmd_terms))
     app.add_handler(CommandHandler(["ochirish", "hisobniochir"], cmd_erase))
     app.add_handler(CommandHandler(["taklif", "referal"], cmd_referral))
     app.add_handler(CommandHandler(["byudjet", "budjet"], cmd_budget))

@@ -108,6 +108,10 @@ TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
 # Do'st taklif qilgan uchun ikkala tomonga qo'shiladigan bepul kunlar
 REFERRAL_BONUS_DAYS = int(os.getenv("REFERRAL_BONUS_DAYS", "7"))
 
+# Necha kun yozmagan odamga «qaytish» eslatmasi yuboriladi. Bitta odamga
+# oyiga bir martadan ko'p yuborilmaydi — bezdirmaslik uchun.
+WINBACK_DAYS = int(os.getenv("WINBACK_DAYS", "7"))
+
 # Valyuta kursi Markaziy bank API'sidan olinadi va bazada saqlanadi.
 # Bu — tarmoq ishlamay qolgan holat uchun zaxira qiymat.
 USD_RATE_FALLBACK = float(os.getenv("USD_RATE_FALLBACK", "12600"))

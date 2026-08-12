@@ -149,6 +149,7 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 | `/taklif` | Do'st taklif qilib bepul kun olish |
 | `/til` | Interfeys tili: o'zbek lotin / kirill / rus |
 | `/maxfiylik` | Maxfiylik siyosati |
+| `/shartlar` | Xizmat shartlari (ommaviy oferta) |
 | `/ochirish` | Hisobni va butun tarixni o'chirish |
 
 ## Sozlamalar (`.env`)
