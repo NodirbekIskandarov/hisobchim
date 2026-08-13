@@ -264,13 +264,13 @@ def api_summary(
     # hamyoni bitta, shuning uchun standart ko'rinish shu.
     unified = db.totals_unified(uid, start, end)
     result = {
-        "hammasi": block(
+        config.CURRENCY_ALL: block(
             db.by_category_unified(uid, start, end, config.KIND_KIRIM),
             db.by_category_unified(uid, start, end, config.KIND_CHIQIM),
             unified["totals"],
         )
     }
-    result["hammasi"]["foreign"] = unified["foreign"]
+    result[config.CURRENCY_ALL]["foreign"] = unified["foreign"]
 
     # Har bir valyuta alohida ham qoladi — kimdir faqat dollarli
     # yozuvlarini ko'rmoqchi bo'lsa.
@@ -290,10 +290,28 @@ def api_summary(
         "end": end.isoformat(),
         "label": label,
         # Birinchisi standart tanlov bo'ladi.
-        "currencies": (["hammasi"] + currencies) if len(currencies) > 1 else currencies,
+        "currencies": ([config.CURRENCY_ALL] + currencies
+                       if len(currencies) > 1 else currencies),
         "base_currency": config.CURRENCY,
         "by_currency": result,
     }
+
+
+def _base_amount(row) -> float:
+    """Yozuvning asosiy valyutadagi summasi.
+
+    `amount_base` yozuv kiritilganda o'sha kungi kurs bilan hisoblanadi. Eski,
+    kurs joriy etilishidan oldingi yozuvlarda u bo'sh bo'lishi mumkin — u holda
+    hozirgi kurs bilan o'giramiz, aks holda dollar summasi so'mga qo'shilib
+    ketardi.
+    """
+    base = row["amount_base"]
+    if base is not None:
+        return float(base)
+    if row["currency"] == config.CURRENCY_SOM:
+        return float(row["amount"])
+    import rates
+    return rates.to_base(row["amount"], row["currency"])[0]
 
 
 @app.get("/api/debts")
@@ -303,6 +321,7 @@ def api_debts(user: dict = Depends(current_user)):
     def _group(kind: str) -> dict:
         items = [r for r in rows if r["kind"] == kind]
         by_cur: dict[str, list[dict]] = {}
+        unified: list[dict] = []
         for r in items:
             cur = r["currency"]
             by_cur.setdefault(cur, []).append({
@@ -310,7 +329,18 @@ def api_debts(user: dict = Depends(current_user)):
                 "amount": r["amount"], "date": r["occurred_on"],
                 "note": r["note"],
             })
+            # «Hammasi» ko'rinishi uchun asosiy valyutaga o'girilgan nusxa —
+            # /api/summary dagi «hammasi» blok bilan bir xil mantiq.
+            unified.append({
+                "id": r["id"], "person": r["person"] or "noma'lum",
+                "amount": _base_amount(r), "date": r["occurred_on"],
+                "note": r["note"], "original_currency": cur,
+            })
         totals = {cur: round(sum(i["amount"] for i in lst), 2) for cur, lst in by_cur.items()}
+        # «hammasi» HAR DOIM qo'shiladi: davr ichida ikki valyuta bo'lsa panel
+        # shu tanlovda turadi, qarzlar esa bitta valyutada bo'lishi mumkin.
+        by_cur[config.CURRENCY_ALL] = unified
+        totals[config.CURRENCY_ALL] = round(sum(i["amount"] for i in unified), 2)
         return {"totals": totals, "items": by_cur}
 
     return {
@@ -335,6 +365,10 @@ def api_transactions(
     end_d = _parse_date(end, reports.today())
     if kind and kind not in config.KINDS:
         raise HTTPException(400, "Noto'g'ri turi")
+    # «hammasi» — valyuta filtri yo'q degani. /api/summary uni valyutalar
+    # ro'yxatiga qo'shadi, shuning uchun bu yerda ham qabul qilinishi shart.
+    if currency == config.CURRENCY_ALL:
+        currency = None
     if currency and currency not in config.SUPPORTED_CURRENCIES:
         raise HTTPException(400, "Noto'g'ri valyuta")
 

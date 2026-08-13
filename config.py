@@ -83,6 +83,9 @@ TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 CURRENCY_SOM = "som"
 CURRENCY_USD = "usd"
 SUPPORTED_CURRENCIES = [CURRENCY_SOM, CURRENCY_USD]
+# «Hammasi» — haqiqiy valyuta emas, balki panel filtridagi «barcha valyuta»
+# tanlovi. Yozuvlar ro'yxatida u «valyuta bo'yicha filtrlamaslik» degani.
+CURRENCY_ALL = "hammasi"
 CURRENCY_SYMBOLS = {CURRENCY_SOM: CURRENCY, CURRENCY_USD: "$"}
 
 

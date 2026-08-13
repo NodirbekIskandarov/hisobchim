@@ -41,10 +41,14 @@
   // Holat
   // ----------------------------------------------------------------------- //
 
+  // «Hammasi» — tur va valyuta filtrlaridagi «filtrlamaslik» tanlovi.
+  // Serverda ham shu nom bilan tanilgan (config.CURRENCY_ALL).
+  const ALL = "hammasi";
+
   const state = {
     period: "oy",
     ref: todayIso(),
-    kind: "hammasi",
+    kind: ALL,
     currency: "som",
     currencies: ["som"],
     // Foydalanuvchi valyutani o'zi tanlaganmi. Tanlamagan bo'lsa —
@@ -378,7 +382,7 @@
     state.currencies.forEach((cur) => {
       const btn = document.createElement("button");
       // «hammasi» — valyutalar asosiy valyutada birlashtirilgan ko'rinish.
-      btn.textContent = cur === "hammasi" ? "Hammasi" : (symbols[cur] || cur.toUpperCase());
+      btn.textContent = cur === ALL ? "Hammasi" : (symbols[cur] || cur.toUpperCase());
       if (cur === state.currency) btn.classList.add("active");
       btn.onclick = () => {
         state.currency = cur;
@@ -409,7 +413,7 @@
       return;
     }
 
-    if (state.kind === "hammasi") {
+    if (state.kind === ALL) {
       renderDonut(
         [
           { value: data.kirim, color: STATUS.kirim },
@@ -516,11 +520,20 @@
 
     const params = new URLSearchParams({
       start: state.summary.start, end: state.summary.end,
-      currency: state.currency, limit: state.recentLimit, offset: state.recentOffset,
+      limit: state.recentLimit, offset: state.recentOffset,
     });
-    if (state.kind !== "hammasi") params.set("kind", state.kind);
+    // «hammasi» — valyuta filtri yo'q degani, uni serverga yubormaymiz.
+    if (state.currency !== ALL) params.set("currency", state.currency);
+    if (state.kind !== ALL) params.set("kind", state.kind);
 
-    const data = await api(`/api/transactions?${params.toString()}`);
+    let data;
+    try {
+      data = await api(`/api/transactions?${params.toString()}`);
+    } catch (e) {
+      // Skeleton abadiy qolib ketmasin — xatoni ko'rsatib, qayta urinish beramiz.
+      showListError(listEl, e, () => loadRecent(append));
+      return;
+    }
     if (!append) listEl.innerHTML = "";
     if (!data.items.length && !append) {
       listEl.innerHTML = '<div class="empty-state">Yozuv yo\'q.</div>';
@@ -531,6 +544,16 @@
     document.getElementById("loadMore").classList.toggle("hidden", shown >= data.total_count);
   }
 
+  /** Ro'yxat yuklanmaganda xatoni ko'rsatadi va qayta urinish tugmasini beradi. */
+  function showListError(listEl, err, retry) {
+    document.getElementById("loadMore").classList.add("hidden");
+    listEl.innerHTML =
+      `<div class="empty-state">Ro'yxatni yuklab bo'lmadi.<br>` +
+      `<small>${escapeHtml(err.message || "Nomaʼlum xatolik")}</small><br>` +
+      `<button class="clear-filter" id="retryList">Qayta urinish</button></div>`;
+    listEl.querySelector("#retryList").onclick = retry;
+  }
+
   /** Kategoriya ustiga bosilganda — shu kategoriyadagi yozuvlarni pastdagi
    * "So'nggi yozuvlar" ro'yxatiga filtrlab ko'rsatadi. */
   async function openFilteredList(kind, category) {
@@ -538,9 +561,17 @@
     listEl.innerHTML = skeleton(3);
     const params = new URLSearchParams({
       start: state.summary.start, end: state.summary.end,
-      currency: state.currency, kind, search: category, limit: 100,
+      kind, search: category, limit: 100,
     });
-    const data = await api(`/api/transactions?${params.toString()}`);
+    if (state.currency !== ALL) params.set("currency", state.currency);
+
+    let data;
+    try {
+      data = await api(`/api/transactions?${params.toString()}`);
+    } catch (e) {
+      showListError(listEl, e, () => openFilteredList(kind, category));
+      return;
+    }
     const filtered = data.items.filter((t) => t.category === category);
 
     // Filtr qo'llanganini ko'rsatuvchi yorliq + uni bekor qilish tugmasi.
