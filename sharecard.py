@@ -10,6 +10,7 @@ hisobotga qaytadi. Rasm yo'qligi xato emas.
 from __future__ import annotations
 
 import io
+import os
 import logging
 from pathlib import Path
 
@@ -50,6 +51,44 @@ def _find(candidates: list[str]) -> str | None:
             return path
     return None
 
+
+
+_MARK_CACHE: dict[int, "Image.Image | None"] = {}
+
+
+def _brand_mark(size: int):
+    """Loyiha ikonkasi (tilla tanga) — ulashish rasmining pastida.
+
+    Fayl topilmasa None qaytaradi va rasm ikonkasiz chiziladi: brend
+    belgisi yo'qligi uchun butun hisobot yaratilmay qolmasligi kerak.
+    """
+    if size in _MARK_CACHE:
+        return _MARK_CACHE[size]
+    # Pillow shu modulda ATAYLAB kech import qilinadi (u o'rnatilmagan
+    # bo'lsa ham bot ishga tushishi kerak), shuning uchun bu yerda ham
+    # funksiya ichida import qilamiz.
+    from PIL import Image, ImageDraw
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "static", "icons", "icon.png")
+    try:
+        mark = Image.open(path).convert("RGBA").resize((size, size), Image.LANCZOS)
+        # Ikonkada tilla fon butun kvadratni to'ldiradi. Qorong'i kartada
+        # kvadrat g'alati ko'rinadi — tanganing o'zi dumaloq bo'lgani uchun
+        # chetlarini aylana bo'yicha kesamiz (silliq chet uchun 4x katta
+        # niqob chizib, keyin kichraytiramiz).
+        big = size * 4
+        circle = Image.new("L", (big, big), 0)
+        ImageDraw.Draw(circle).ellipse((0, 0, big - 1, big - 1), fill=255)
+        mark.putalpha(circle.resize((size, size), Image.LANCZOS))
+    except FileNotFoundError:
+        log.info("Brend ikonkasi topilmadi: %s", path)
+        mark = None
+    except Exception:
+        log.exception("Brend ikonkasini o'qib bo'lmadi: %s", path)
+        mark = None
+    _MARK_CACHE[size] = mark
+    return mark
 
 def available() -> bool:
     try:
@@ -157,7 +196,12 @@ def build(*, title: str, kirim: float, chiqim: float, categories: list[tuple],
     # Pastki qism — brend
     foot = H - 108
     draw.line([(pad, foot - 34), (W - pad, foot - 34)], fill=(52, 66, 88), width=2)
-    draw.text((pad, foot), "Tanga", font=font(38, True), fill=INK)
+    text_x = pad
+    mark = _brand_mark(56)
+    if mark is not None:
+        img.paste(mark, (pad, foot - 6), mark)
+        text_x = pad + 56 + 16
+    draw.text((text_x, foot), "Tanga", font=font(38, True), fill=INK)
     handle = f"@{bot_username}" if bot_username else "Telegram bot"
     box = draw.textbbox((0, 0), handle, font=font(32))
     draw.text((W - pad - (box[2] - box[0]), foot + 6), handle, font=font(32),
