@@ -49,7 +49,7 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
-log = logging.getLogger("hisobchi")
+log = logging.getLogger("tanga")
 
 # Anthropic API qo'llaydigan rasm turlari.
 SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
@@ -58,7 +58,7 @@ PDF_TYPE = "application/pdf"
 # Albom (bir vaqtda yuborilgan bir nechta rasm) to'planishini kutish vaqti.
 ALBUM_WAIT_SECONDS = 3.0
 
-HELP_TEXT = """👋 <b>Shaxsiy hisobchi</b>
+HELP_TEXT = """👋 <b>Tanga — shaxsiy hisobingiz</b>
 
 <b>1. Oddiy tilda yozing</b>
 • <code>obedga 45 ming</code>
@@ -2210,7 +2210,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Admin boshqaruvi bot ichidan OLIB TASHLANDI — hammasi alohida web
-# panelda: https://hisobchim.niskandarov.uz
+# panelda: https://tanga.niskandarov.uz
 # Sabab: statistikani, foydalanuvchilarni va to'lovlarni chat oynasida
 # boshqarish noqulay va xatoga moyil edi.
 

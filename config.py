@@ -73,7 +73,7 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int,
     )
 
 
-DB_PATH = os.getenv("DB_PATH", "hisobchi.db")
+DB_PATH = os.getenv("DB_PATH", "tanga.db")
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 

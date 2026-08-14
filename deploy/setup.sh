@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Hisobchi botni Ubuntu/Debian serverga o'rnatadi.
+# Tanga botni Ubuntu/Debian serverga o'rnatadi.
 # Serverda root sifatida ishga tushiring:
-#   bash setup.sh https://github.com/NodirbekIskandarov/hisobchim.git
+#   bash setup.sh https://github.com/NodirbekIskandarov/tangam.git
 #
 # Qayta-qayta ishga tushirish xavfsiz — mavjud .env va bazaga tegmaydi.
 
 set -euo pipefail
 
-REPO="${1:-https://github.com/NodirbekIskandarov/hisobchim.git}"
-APP_DIR=/opt/hisobchi
-APP_USER=hisobchi
+REPO="${1:-https://github.com/NodirbekIskandarov/tangam.git}"
+APP_DIR=/opt/tanga
+APP_USER=tanga
 
 if [[ $EUID -ne 0 ]]; then
   echo "Bu skriptni root sifatida ishga tushiring (sudo bash setup.sh)" >&2
@@ -59,22 +59,22 @@ chown -R "$APP_USER:$APP_USER" "$APP_DIR"
 chmod 600 "$APP_DIR/.env"
 
 echo "==> systemd xizmati"
-cp "$APP_DIR/deploy/hisobchi.service" /etc/systemd/system/hisobchi.service
+cp "$APP_DIR/deploy/tanga.service" /etc/systemd/system/tanga.service
 systemctl daemon-reload
-systemctl enable hisobchi -q
+systemctl enable tanga -q
 
 if [[ "$NEEDS_ENV" -eq 1 ]]; then
   echo
   echo "O'rnatish tugadi, lekin bot ISHGA TUSHIRILMADI — avval .env ni to'ldiring:"
   echo "   nano $APP_DIR/.env"
-  echo "   systemctl start hisobchi"
+  echo "   systemctl start tanga"
 else
-  systemctl restart hisobchi
+  systemctl restart tanga
   sleep 2
-  systemctl --no-pager --lines=15 status hisobchi || true
+  systemctl --no-pager --lines=15 status tanga || true
 fi
 
 echo
-echo "Loglar:      journalctl -u hisobchi -f"
-echo "Qayta ishga: systemctl restart hisobchi"
-echo "To'xtatish:  systemctl stop hisobchi"
+echo "Loglar:      journalctl -u tanga -f"
+echo "Qayta ishga: systemctl restart tanga"
+echo "To'xtatish:  systemctl stop tanga"

@@ -63,7 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_usage_user_day ON usage_log(user_id, day);
 CREATE INDEX IF NOT EXISTS idx_usage_day ON usage_log(day);
 
 -- Obuna so'rovlari. Bot bu yerga yozadi, admin web panel o'qib hal qiladi.
--- Sxema admin panel bilan bir xil bo'lishi shart (hisobchim-admin/store.py).
+-- Sxema admin panel bilan bir xil bo'lishi shart (tanga-admin/store.py).
 CREATE TABLE IF NOT EXISTS subscription_requests (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL,

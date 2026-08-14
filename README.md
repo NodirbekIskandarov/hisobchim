@@ -1,4 +1,4 @@
-# Shaxsiy hisobchi bot
+# Shaxsiy tanga bot
 
 Telegram bot: oddiy tilda yozasiz yoki chek rasmini yuborasiz — Claude (Anthropic API)
 matnni/rasmni o'qib, undan summa, turi va kategoriyani ajratib oladi va SQLite bazaga yozadi.
@@ -97,7 +97,7 @@ Balansga oz miqdorda pul qo'shishingiz kerak bo'ladi (kredit kartasi orqali).
 ### 3. Loyihani tayyorlash
 
 ```bash
-cd hisobchi_bot
+cd tanga_bot
 
 python3 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
@@ -162,7 +162,7 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 | `CURRENCY` | `so'm` | Valyuta nomi |
 | `TIMEZONE` | `Asia/Tashkent` | Vaqt mintaqasi |
 | `SMALL_NUMBERS_ARE_THOUSANDS` | `true` | `obedga 50` → 50 000 so'm deb tushunilsinmi |
-| `DB_PATH` | `hisobchi.db` | Baza fayli joyi |
+| `DB_PATH` | `tanga.db` | Baza fayli joyi |
 | `QA_MAX_ROWS` | `500` | Savolga javob berishda AI ko'radigan yozuvlar soni |
 | `MAX_RECEIPT_PARTS` | `8` | Bitta chek uchun maksimal rasm soni |
 | `MAX_IMAGE_BYTES` | `4500000` | Bitta rasm uchun maksimal hajm |
@@ -200,18 +200,18 @@ CHAT_MODEL=claude-haiku-4-5    # savol-javob arzonroq
 Kompyuteringizni o'chirsangiz bot ham to'xtaydi. Doimiy ishlashi uchun arzon VPS
 oling va `systemd` xizmati sifatida ishga tushiring:
 
-`/etc/systemd/system/hisobchi.service`:
+`/etc/systemd/system/tanga.service`:
 
 ```ini
 [Unit]
-Description=Hisobchi bot
+Description=Tanga bot
 After=network-online.target
 
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/hisobchi_bot
-ExecStart=/home/ubuntu/hisobchi_bot/.venv/bin/python bot.py
+WorkingDirectory=/home/ubuntu/tanga_bot
+ExecStart=/home/ubuntu/tanga_bot/.venv/bin/python bot.py
 Restart=always
 RestartSec=10
 
@@ -221,14 +221,14 @@ WantedBy=multi-user.target
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now hisobchi
-sudo journalctl -u hisobchi -f     # loglarni ko'rish
+sudo systemctl enable --now tanga
+sudo journalctl -u tanga -f     # loglarni ko'rish
 ```
 
 ## Xavfsizlik
 
 - `.env` faylini hech kimga bermang va git'ga yuklamang (`.gitignore` da allaqachon bor).
-- Baza (`hisobchi.db`) oddiy fayl — vaqti-vaqti bilan nusxasini oling.
+- Baza (`tanga.db`) oddiy fayl — vaqti-vaqti bilan nusxasini oling.
 - `ALLOWED_USER_IDS` bo'sh bo'lsa bot hech kimga javob bermaydi. Bu ataylab shunday.
 
 ## Ma'lum cheklovlar

@@ -32,7 +32,7 @@ import config
 import db
 import reports
 
-app = FastAPI(title="Hisobchi AI — boshqaruv paneli")
+app = FastAPI(title="Tanga — boshqaruv paneli")
 
 # initData 24 soatdan eski bo'lsa rad etiladi (Telegram tavsiyasi).
 INIT_DATA_MAX_AGE = 24 * 3600

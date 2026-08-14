@@ -57,13 +57,13 @@ T = {
     # ---- Kirish va umumiy ----
     "welcome": {
         "uz": ("👋 <b>Salom{name}!</b>\n\n"
-               "Men sizning shaxsiy hisobchingizman. Xarajatlaringizni yozib "
+               "Men Tanga — sizning shaxsiy hisobingiz. Xarajatlaringizni yozib "
                "boraman, kategoriyalarga ajrataman va hisobot beraman.\n\n"
                "<b>Boshlash juda oddiy — shunchaki menga yozing:</b>\n\n"
                "<code>obedga 45 ming</code>\n\n"
                "Tugmani bosib sinab ko'ring 👇"),
         "ru": ("👋 <b>Здравствуйте{name}!</b>\n\n"
-               "Я ваш личный бухгалтер. Записываю расходы, распределяю их по "
+               "Я Tanga — ваш личный учёт финансов. Записываю расходы, распределяю "
                "категориям и составляю отчёты.\n\n"
                "<b>Начать просто — напишите мне:</b>\n\n"
                "<code>обед 45 тысяч</code>\n\n"
@@ -495,7 +495,7 @@ T = {
     "terms": {
         "uz": ("📄 <b>XIZMAT SHARTLARI</b>\n\n"
                "<b>1. Xizmat nima</b>\n"
-               "«Hisobchi AI» — shaxsiy xarajatlarni yozib borish va hisobot "
+               "«Tanga» — shaxsiy xarajatlarni yozib borish va hisobot "
                "olish uchun Telegram boti. Xizmat «bor holicha» taqdim "
                "etiladi.\n\n"
                "<b>2. Bepul sinov</b>\n"
@@ -535,7 +535,7 @@ T = {
                "<i>Versiya: {version}</i>"),
         "ru": ("📄 <b>УСЛОВИЯ СЕРВИСА</b>\n\n"
                "<b>1. Что это за сервис</b>\n"
-               "«Hisobchi AI» — Telegram-бот для учёта личных расходов и "
+               "«Tanga» — Telegram-бот для учёта личных расходов и "
                "получения отчётов. Сервис предоставляется «как есть».\n\n"
                "<b>2. Бесплатный период</b>\n"
                "Каждый новый пользователь получает {trial} дней бесплатно. "

@@ -10,16 +10,16 @@ Serverga SSH orqali kiring va bitta buyruq bilan o'rnating:
 ```bash
 ssh root@SERVER_IP
 
-curl -fsSL https://raw.githubusercontent.com/NodirbekIskandarov/hisobchim/main/deploy/setup.sh \
+curl -fsSL https://raw.githubusercontent.com/NodirbekIskandarov/tangam/main/deploy/setup.sh \
   -o setup.sh
-bash setup.sh https://github.com/NodirbekIskandarov/hisobchim.git
+bash setup.sh https://github.com/NodirbekIskandarov/tangam.git
 ```
 
 Skript quyidagilarni bajaradi:
 
 1. `python3`, `venv`, `git` paketlarini o'rnatadi
-2. `hisobchi` nomli tizim foydalanuvchisini yaratadi (bot root sifatida ishlamaydi)
-3. Loyihani `/opt/hisobchi` ga klonlaydi
+2. `tanga` nomli tizim foydalanuvchisini yaratadi (bot root sifatida ishlamaydi)
+3. Loyihani `/opt/tanga` ga klonlaydi
 4. Virtual muhit yaratib bog'liqliklarni o'rnatadi
 5. `.env` faylini `.env.example` dan nusxalaydi (huquqlari `600`)
 6. `systemd` xizmatini yoqadi
@@ -27,9 +27,9 @@ Skript quyidagilarni bajaradi:
 Keyin `.env` ni to'ldirasiz va xizmatni ishga tushirasiz:
 
 ```bash
-nano /opt/hisobchi/.env      # TELEGRAM_TOKEN, ANTHROPIC_API_KEY, ALLOWED_USER_IDS
-systemctl start hisobchi
-journalctl -u hisobchi -f    # loglarni kuzatish
+nano /opt/tanga/.env      # TELEGRAM_TOKEN, ANTHROPIC_API_KEY, ALLOWED_USER_IDS
+systemctl start tanga
+journalctl -u tanga -f    # loglarni kuzatish
 ```
 
 > ⚠️ **Bir vaqtning o'zida bitta nusxa ishlashi kerak.** Telegram bitta tokenga
@@ -42,10 +42,10 @@ journalctl -u hisobchi -f    # loglarni kuzatish
 Kodni o'zgartirib GitHub'ga yuborganingizdan keyin, serverda:
 
 ```bash
-cd /opt/hisobchi
+cd /opt/tanga
 git pull
 .venv/bin/pip install -q -r requirements.txt
-systemctl restart hisobchi
+systemctl restart tanga
 ```
 
 Yoki shunchaki `setup.sh` ni qayta ishga tushiring — u mavjud `.env` va
@@ -55,35 +55,35 @@ bazaga tegmaydi.
 
 | Buyruq | Vazifasi |
 |---|---|
-| `systemctl status hisobchi` | Holati |
-| `systemctl restart hisobchi` | Qayta ishga tushirish |
-| `systemctl stop hisobchi` | To'xtatish |
-| `journalctl -u hisobchi -f` | Loglarni jonli kuzatish |
-| `journalctl -u hisobchi --since "1 hour ago"` | Oxirgi 1 soatlik loglar |
+| `systemctl status tanga` | Holati |
+| `systemctl restart tanga` | Qayta ishga tushirish |
+| `systemctl stop tanga` | To'xtatish |
+| `journalctl -u tanga -f` | Loglarni jonli kuzatish |
+| `journalctl -u tanga --since "1 hour ago"` | Oxirgi 1 soatlik loglar |
 
 ## Bazani zaxiralash
 
-Baza — oddiy fayl: `/opt/hisobchi/hisobchi.db`.
+Baza — oddiy fayl: `/opt/tanga/tanga.db`.
 
 ```bash
 # Qo'lda nusxa olish
-cp /opt/hisobchi/hisobchi.db /root/hisobchi-$(date +%F).db
+cp /opt/tanga/tanga.db /root/tanga-$(date +%F).db
 
 # Har kuni avtomatik (crontab -e)
-0 3 * * * cp /opt/hisobchi/hisobchi.db /root/backup/hisobchi-$(date +\%F).db
+0 3 * * * cp /opt/tanga/tanga.db /root/backup/tanga-$(date +\%F).db
 ```
 
 Kompyuterga tortib olish:
 
 ```bash
-scp root@SERVER_IP:/opt/hisobchi/hisobchi.db ./
+scp root@SERVER_IP:/opt/tanga/tanga.db ./
 ```
 
 ## Xavfsizlik
 
 - `.env` git'ga **hech qachon** yuborilmaydi (`.gitignore` da).
   Serverda uning huquqlari `600` — faqat egasi o'qiy oladi.
-- Bot `root` sifatida emas, alohida `hisobchi` foydalanuvchisi ostida ishlaydi.
+- Bot `root` sifatida emas, alohida `tanga` foydalanuvchisi ostida ishlaydi.
 - `systemd` unitida `ProtectSystem=strict` va `NoNewPrivileges=true` yoqilgan —
   bot faqat o'z papkasiga yoza oladi.
 - Serverga parol bilan emas, **SSH kalit** bilan kirishni yoqing va parol
@@ -104,7 +104,7 @@ systemctl restart ssh
 **Bot ishga tushmayapti**
 
 ```bash
-journalctl -u hisobchi -n 50 --no-pager
+journalctl -u tanga -n 50 --no-pager
 ```
 
 - `.env faylida quyidagilar yo'q: ...` → `.env` to'ldirilmagan

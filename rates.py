@@ -23,7 +23,7 @@ from datetime import date, timedelta
 
 import config
 
-log = logging.getLogger("hisobchi.rates")
+log = logging.getLogger("tanga.rates")
 
 CBU_URL = "https://cbu.uz/uz/arkhiv-kursov-valyut/json/{code}/{day}/"
 TIMEOUT = 8
@@ -38,7 +38,7 @@ def _fetch_cbu(currency: str, day: date) -> float | None:
     url = CBU_URL.format(code=code, day=day.isoformat())
     try:
         request = urllib.request.Request(
-            url, headers={"User-Agent": "hisobchi-ai/1.0", "Accept": "application/json"})
+            url, headers={"User-Agent": "tanga/1.0", "Accept": "application/json"})
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:

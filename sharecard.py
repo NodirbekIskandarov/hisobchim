@@ -15,7 +15,7 @@ from pathlib import Path
 
 import config
 
-log = logging.getLogger("hisobchi.sharecard")
+log = logging.getLogger("tanga.sharecard")
 
 W, H = 1080, 1350          # Telegram va Instagram uchun qulay nisbat (4:5)
 
@@ -157,7 +157,7 @@ def build(*, title: str, kirim: float, chiqim: float, categories: list[tuple],
     # Pastki qism — brend
     foot = H - 108
     draw.line([(pad, foot - 34), (W - pad, foot - 34)], fill=(52, 66, 88), width=2)
-    draw.text((pad, foot), "Hisobchi AI", font=font(38, True), fill=INK)
+    draw.text((pad, foot), "Tanga", font=font(38, True), fill=INK)
     handle = f"@{bot_username}" if bot_username else "Telegram bot"
     box = draw.textbbox((0, 0), handle, font=font(32))
     draw.text((W - pad - (box[2] - box[0]), foot + 6), handle, font=font(32),
