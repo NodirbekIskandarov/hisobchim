@@ -74,6 +74,32 @@ def cost_usd(model: str, input_tokens: int, output_tokens: int,
 
 
 DB_PATH = os.getenv("DB_PATH", "tanga.db")
+
+# Bazani shifrlash kaliti — 64 ta o'n oltilik belgi (32 bayt).
+# Bo'sh bo'lsa baza oddiy SQLite sifatida ochiladi (mahalliy ishlab chiqish
+# va sinovlar uchun). To'ldirilgan bo'lsa SQLCipher ishlatiladi.
+#
+# DIQQAT: kalit yo'qolsa baza BUTUNLAY ochilmay qoladi. Uni serverdan
+# tashqarida ham saqlang.
+DB_ENCRYPTION_KEY = os.getenv("DB_ENCRYPTION_KEY", "").strip().lower()
+
+
+def db_key_pragma() -> str:
+    """`PRAGMA key` uchun qiymat.
+
+    SQLCipher x'...' shaklini XOM kalit deb qabul qiladi va kalit hosil
+    qilish bosqichini o'tkazib yuboradi. Hex ishlatishimizning sababi:
+    PRAGMA bog'langan parametrni qabul qilmaydi, hex esa qo'shtirnoq
+    qochirish muammosini butunlay yo'q qiladi.
+    """
+    key = DB_ENCRYPTION_KEY
+    if len(key) != 64 or any(ch not in "0123456789abcdef" for ch in key):
+        raise SystemExit(
+            "DB_ENCRYPTION_KEY 64 ta o'n oltilik belgidan iborat bo'lishi kerak "
+            f"(hozir {len(key)} ta). Yangi kalit: python -c "
+            "\"import secrets; print(secrets.token_hex(32))\""
+        )
+    return f"\"x'{key}'\""
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 

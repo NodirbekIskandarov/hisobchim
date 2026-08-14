@@ -141,12 +141,34 @@ TABLE_MIGRATIONS = [
 ]
 
 
+def _open(path: str, timeout: int):
+    """Bazaga ulanadi. Kalit sozlangan bo'lsa — SQLCipher orqali.
+
+    Kalit bo'lmasa oddiy sqlite3 ishlatiladi: mahalliy ishlab chiqish va
+    sinovlar shifrlanmagan baza bilan ishlaydi. Serverda kalit doim bor.
+
+    Kalit noto'g'ri bo'lsa SQLCipher birinchi so'rovdayoq xato beradi —
+    jimgina bo'sh baza yaratilib qolmaydi.
+    """
+    if not config.DB_ENCRYPTION_KEY:
+        conn = sqlite3.connect(path, timeout=timeout)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    from sqlcipher3 import dbapi2 as sqlcipher
+
+    conn = sqlcipher.connect(path, timeout=timeout)
+    conn.execute(f"PRAGMA key = {config.db_key_pragma()}")
+    # Row sinfi modulga bog'liq — sqlite3.Row ni bu yerga qo'yib bo'lmaydi.
+    conn.row_factory = sqlcipher.Row
+    return conn
+
+
 @contextmanager
 def get_conn():
     # timeout: boshqa jarayon (bot yoki webapp) yozayotgan bo'lsa kutadi,
     # darhol "database is locked" bermaydi.
-    conn = sqlite3.connect(config.DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
+    conn = _open(config.DB_PATH, timeout=10)
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL: bot.py va webapp.py bir vaqtda o'qishi/yozishi mumkin — o'qish
     # yozishni bloklamaydi. Bir marta o'rnatiladi, keyingi ulanishlarga ham tegishli.
