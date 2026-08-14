@@ -201,6 +201,21 @@ def init() -> None:
             "WHERE amount_base IS NULL AND currency = 'som'")
 
 
+def app_settings() -> dict[str, str]:
+    """Admin panelda o'zgartirilgan qiymatlar.
+
+    Jadval admin panel tomonidan yaratiladi. Bot uni faqat o'qiydi va
+    jadval hali yo'q bo'lsa bo'sh lug'at qaytaradi — bot admin paneldan
+    oldin ishga tushishi mumkin.
+    """
+    try:
+        with get_conn() as conn:
+            rows = conn.execute("SELECT key, value FROM app_settings").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+    except Exception:
+        return {}
+
+
 def backfill_base(default_rate: float | None = None) -> int:
     """amount_base bo'sh qolgan valyutali yozuvlarni to'ldiradi.
 
@@ -629,7 +644,7 @@ def get_or_create_user(user_id: int, first_name: str = "", username: str | None 
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if row is None:
-            trial_ends = _now() + timedelta(days=config.TRIAL_DAYS)
+            trial_ends = _now() + timedelta(days=config.trial_days())
             conn.execute(
                 """INSERT INTO users (user_id, first_name, username, trial_ends_at, last_seen_at)
                    VALUES (?, ?, ?, ?, ?)""",
@@ -652,6 +667,10 @@ def access_status(user_id: int, first_name: str = "", username: str | None = Non
     status: owner | trial | subscribed | expired | blocked | not_allowed
     """
     if user_id in config.OWNER_IDS:
+        # Egaga muddat tekshirilmaydi, lekin tashrifi baribir yozilishi
+        # kerak: aks holda admin paneldagi «oxirgi faollik» ustuni ega
+        # uchun muzlab qoladi va statistikani buzadi.
+        get_or_create_user(user_id, first_name, username)
         return {"ok": True, "status": "owner", "until": None, "days_left": None}
 
     # ALLOWED_USER_IDS to'ldirilgan bo'lsa — yopiq rejim (sinov guruhi uchun).

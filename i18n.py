@@ -412,6 +412,30 @@ T = {
     "erase_btn_no": {"uz": "❌ Bekor qilish", "ru": "❌ Отмена"},
     "erase_cancelled": {"uz": "✅ Bekor qilindi — hech narsa o'chirilmadi.",
                         "ru": "✅ Отменено — ничего не удалено."},
+    # Ikkinchi bosqich: tugmani bexosdan bosib yuborish oson, so'zni
+    # ataylab yozish esa qiyin. Shuning uchun oxirgi tasdiq — yozma.
+    "erase_word": {"uz": "O'CHIRISH", "ru": "УДАЛИТЬ"},
+    "erase_type": {
+        "uz": ("🛑 <b>Oxirgi tasdiq</b>\n\n"
+               "{n} ta yozuv va butun hisobingiz o'chiriladi. Buni "
+               "qaytarib bo'lmaydi.\n\n"
+               "Rostdan xohlasangiz — javob sifatida shu so'zni yozing:\n"
+               "<code>{word}</code>\n\n"
+               "Boshqa har qanday xabar — bekor qilish. 5 daqiqadan keyin "
+               "so'rov o'z-o'zidan bekor bo'ladi."),
+        "ru": ("🛑 <b>Последнее подтверждение</b>\n\n"
+               "{n} записей и весь аккаунт будут удалены. Это необратимо.\n\n"
+               "Если действительно хотите — отправьте в ответ это слово:\n"
+               "<code>{word}</code>\n\n"
+               "Любое другое сообщение — отмена. Через 5 минут запрос "
+               "отменится сам."),
+    },
+    "erase_wrong_word": {
+        "uz": ("✅ Bekor qilindi — hech narsa o'chirilmadi.\n\n"
+               "So'z mos kelmadi. Yozuvlaringiz joyida."),
+        "ru": ("✅ Отменено — ничего не удалено.\n\n"
+               "Слово не совпало. Ваши записи на месте."),
+    },
     "erase_done": {
         "uz": ("🗑 <b>Hisobingiz o'chirildi</b>\n\n"
                "{n} ta yozuv va butun tarix bazadan olib tashlandi.\n\n"

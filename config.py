@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
@@ -132,8 +133,46 @@ OWNER_IDS = _ids("OWNER_IDS")
 # ID'lar kiradi — yopiq sinovdan o'tkazish uchun qulay.
 ALLOWED_USER_IDS = _ids("ALLOWED_USER_IDS")
 
+# --------------------------------------------------------------------------- #
+# Admin panelda o'zgartiriladigan qiymatlar
+#
+# Ular bazadagi `app_settings` jadvalida turadi. Bot ularni shu yerdan
+# o'qiydi — narx yoki karta rekvizitini o'zgartirish uchun serverga kirib
+# .env tahrirlash va botni qayta ishga tushirish shart emas.
+#
+# Kesh qisqa: o'zgarish yarim daqiqada yetib boradi, lekin har bir xabar
+# uchun bazaga murojaat qilinmaydi.
+# --------------------------------------------------------------------------- #
+
+_settings_cache: tuple[float, dict] | None = None
+_SETTINGS_TTL = 30.0
+
+
+def runtime_settings() -> dict:
+    global _settings_cache
+    now = time.monotonic()
+    if _settings_cache and now - _settings_cache[0] < _SETTINGS_TTL:
+        return _settings_cache[1]
+    try:
+        import db
+        values = db.app_settings()
+    except Exception:
+        # Baza hali tayyor bo'lmasligi mumkin (birinchi ishga tushirish).
+        values = _settings_cache[1] if _settings_cache else {}
+    _settings_cache = (now, values)
+    return values
+
+
 # Yangi foydalanuvchi uchun bepul sinov muddati (kun).
 TRIAL_DAYS = int(os.getenv("TRIAL_DAYS", "7"))
+
+
+def trial_days() -> int:
+    try:
+        value = int(str(runtime_settings().get("trial_days", "")).strip())
+        return value if 1 <= value <= 365 else TRIAL_DAYS
+    except (TypeError, ValueError):
+        return TRIAL_DAYS
 # Do'st taklif qilgan uchun ikkala tomonga qo'shiladigan bepul kunlar
 REFERRAL_BONUS_DAYS = int(os.getenv("REFERRAL_BONUS_DAYS", "7"))
 
@@ -150,6 +189,14 @@ USD_RATE_FALLBACK = float(os.getenv("USD_RATE_FALLBACK", "12600"))
 # yuk kelsa hisobdan cheksiz pul ketishining oldini oladi.
 # 0 — chegarasiz (tavsiya etilmaydi).
 MONTHLY_BUDGET_USD = float(os.getenv("MONTHLY_BUDGET_USD", "50"))
+
+
+def monthly_budget_usd() -> float:
+    try:
+        value = float(str(runtime_settings().get("ai_monthly_budget_usd", "")).strip())
+        return value if value > 0 else MONTHLY_BUDGET_USD
+    except (TypeError, ValueError):
+        return MONTHLY_BUDGET_USD
 
 # Obuna bo'lish uchun murojaat manzili (masalan @username).
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
@@ -186,16 +233,25 @@ CARD_HOLDER = os.getenv("CARD_HOLDER", "").strip()
 CARD_BANK = os.getenv("CARD_BANK", "").strip()
 
 
+def card_number() -> str:
+    return str(runtime_settings().get("card_number") or CARD_NUMBER)
+
+
+def card_holder() -> str:
+    return str(runtime_settings().get("card_holder") or CARD_HOLDER)
+
+
 def card_ready() -> bool:
-    return bool(CARD_NUMBER and CARD_HOLDER)
+    return bool(card_number() and card_holder())
 
 
 def card_pretty() -> str:
     """Karta raqamini 4 talab ajratib ko'rsatadi."""
-    digits = "".join(ch for ch in CARD_NUMBER if ch.isdigit())
+    number = card_number()
+    digits = "".join(ch for ch in number if ch.isdigit())
     if len(digits) == 16:
         return " ".join(digits[i:i + 4] for i in range(0, 16, 4))
-    return CARD_NUMBER
+    return number
 
 # --------------------------------------------------------------------------- #
 # Obuna tariflari
@@ -214,8 +270,28 @@ SUBSCRIPTION_PLANS = [
 ]
 
 
+def plans() -> list[dict]:
+    """Joriy tariflar.
+
+    Narx admin panelning «Sozlamalar» ekranida o'zgartiriladi va bazadagi
+    `app_settings` jadvaliga tushadi. Bot shu jadvalni o'qiydi, ya'ni narx
+    bir joyda turadi — ilgari ro'yxat ikki loyihada takrorlanardi va
+    o'zgartirishda biri unutilib qolishi mumkin edi.
+    """
+    overrides = runtime_settings()
+    result = []
+    for base in SUBSCRIPTION_PLANS:
+        plan = dict(base)
+        raw = overrides.get(f"plan_price_{plan['code']}")
+        digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+        if digits and int(digits) > 0:
+            plan["price"] = int(digits)
+        result.append(plan)
+    return result
+
+
 def plan_by_code(code: str) -> dict | None:
-    return next((p for p in SUBSCRIPTION_PLANS if p["code"] == code), None)
+    return next((p for p in plans() if p["code"] == code), None)
 
 
 def plan_monthly_price(plan: dict) -> int:
@@ -224,7 +300,7 @@ def plan_monthly_price(plan: dict) -> int:
 
 def plan_discount_percent(plan: dict) -> int:
     """Oylik tarifga nisbatan necha foiz tejaladi."""
-    base = SUBSCRIPTION_PLANS[0]["price"] * plan["months"]
+    base = plans()[0]["price"] * plan["months"]
     if base <= 0 or plan["price"] >= base:
         return 0
     return round((base - plan["price"]) / base * 100)

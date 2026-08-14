@@ -372,7 +372,7 @@ async def _budget_ok(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool
     Chegara HAMMAGA, shu jumladan egaga ham qo'llanadi: bu pul masalasi,
     imtiyoz masalasi emas.
     """
-    cap = config.MONTHLY_BUDGET_USD
+    cap = config.monthly_budget_usd()
     if cap <= 0:
         return True
 
@@ -886,6 +886,8 @@ _last_receipt = TTLStore(ttl_seconds=900, max_items=100)
 _awaiting_proof = TTLStore(ttl_seconds=7200, max_items=500)
 # Hisobni o'chirishni tasdiqlash kutilmoqda: user_id -> True (5 daqiqa)
 _awaiting_erase = TTLStore(ttl_seconds=300, max_items=100)
+# Oxirgi bosqich: foydalanuvchi o'chirish so'zini yozishi kutilmoqda.
+_erase_typed = TTLStore(ttl_seconds=300, max_items=100)
 
 
 class ImageError(Exception):
@@ -1156,6 +1158,22 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     """
     message = message or update.effective_message
     user_id = update.effective_user.id
+
+    # Hisobni o'chirishning oxirgi bosqichi. Bu tekshiruv HAMMASIDAN
+    # oldin turadi: kutilayotgan matn yozuv sifatida tahlil qilinib
+    # ketmasin.
+    if _erase_typed.get(user_id):
+        _erase_typed.pop(user_id, None)
+        lang = lang_of(user_id, context)
+        if text.strip().casefold() == i18n.t(lang, "erase_word").casefold():
+            stats = db.erase_user(user_id)
+            await message.reply_text(
+                i18n.t(lang, "erase_done", n=stats["transactions"]),
+                parse_mode=ParseMode.HTML)
+            log.info("Foydalanuvchi o'z hisobini o'chirdi: %s", user_id)
+        else:
+            await message.reply_text(i18n.t(lang, "erase_wrong_word"))
+        return
 
     # «Uzun chek» rejimida yozilgan matn — chek uchun izoh.
     if user_id in _collect:
@@ -1500,7 +1518,7 @@ def _fmt_price(amount: int) -> str:
 
 def plans_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     rows = []
-    for p in config.SUBSCRIPTION_PLANS:
+    for p in config.plans():
         disc = config.plan_discount_percent(p)
         suffix = f" · −{disc}%" if disc else ""
         rows.append([
@@ -1521,7 +1539,7 @@ def plans_text(access: dict | None = None, lang: str = "uz") -> str:
     elif status == "subscribed":
         lines += [i18n.t(lang, "plans_active", days=access["days_left"]), ""]
 
-    for p in config.SUBSCRIPTION_PLANS:
+    for p in config.plans():
         disc = config.plan_discount_percent(p)
         line = f"<b>{p['label']}</b> — {_fmt_price(p['price'])}"
         if disc:
@@ -1568,7 +1586,7 @@ def payment_text(plan: dict, lang: str = "uz") -> str:
     return (i18n.t(lang, "pay_title") + "\n\n"
             + i18n.t(lang, "pay_body", plan=plan["label"], price=price,
                      card=reports.esc(config.card_pretty()),
-                     holder=reports.esc(config.CARD_HOLDER), bank=bank,
+                     holder=reports.esc(config.card_holder()), bank=bank,
                      contact=contact))
 
 
@@ -1718,7 +1736,7 @@ CONSENT_VERSION = "2026-08-1"
 def _terms_text(lang: str) -> str:
     """Ommaviy oferta matni. Rekvizitlar .env da to'ldirilgan bo'lsa
     qo'shiladi — ro'yxatdan o'tmaguncha yolg'on ma'lumot yozilmaydi."""
-    text = i18n.t(lang, "terms", trial=config.TRIAL_DAYS,
+    text = i18n.t(lang, "terms", trial=config.trial_days(),
                   contact=reports.esc(_support_contact()),
                   version=CONSENT_VERSION)
     line = config.operator_line()
@@ -1839,6 +1857,8 @@ async def cmd_erase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     rows = len(db.all_rows(user.id))
     lang = lang_of(user.id, context)
+    # Oldingi tugallanmagan urinish qolgan bo'lsa tozalaymiz.
+    _erase_typed.pop(user.id, None)
     _awaiting_erase.set(user.id, True)
     await update.effective_message.reply_text(
         i18n.t(lang, "erase_confirm", n=rows),
@@ -1863,6 +1883,7 @@ async def on_erase_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "erase:yoq":
         _awaiting_erase.pop(user.id, None)
+        _erase_typed.pop(user.id, None)
         await query.answer("OK")
         await query.edit_message_text(i18n.t(lang, "erase_cancelled"))
         return
@@ -1878,13 +1899,16 @@ async def on_erase_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not _awaiting_erase.get(user.id):
             await query.answer(i18n.t(lang, "erase_expired"), show_alert=True)
             return
+        # Tugma bosildi — lekin hali o'chirmaymiz. Bexosdan bosib
+        # yuborish oson, shuning uchun oxirgi tasdiq yozma bo'ladi:
+        # foydalanuvchi so'zni o'zi terishi kerak.
         _awaiting_erase.pop(user.id, None)
-        stats = db.erase_user(user.id)
-        await query.answer("🗑")
+        rows = len(db.all_rows(user.id))
+        _erase_typed.set(user.id, True)
+        await query.answer()
         await query.edit_message_text(
-            i18n.t(lang, "erase_done", n=stats["transactions"]),
+            i18n.t(lang, "erase_type", n=rows, word=i18n.t(lang, "erase_word")),
             parse_mode=ParseMode.HTML)
-        log.info("Foydalanuvchi o'z hisobini o'chirdi: %s", user.id)
         return
 
 
@@ -2539,7 +2563,7 @@ def main() -> None:
     else:
         log.info(
             "OCHIQ rejim: yangi foydalanuvchilar %d kunlik bepul sinov oladi.",
-            config.TRIAL_DAYS,
+            config.trial_days(),
         )
 
     db.init()
