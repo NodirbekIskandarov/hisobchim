@@ -358,6 +358,35 @@ def api_debts(user: dict = Depends(current_user)):
     }
 
 
+@app.get("/api/savings")
+def api_savings(user: dict = Depends(current_user)):
+    """Jamg'arma holati — DAVRGA bog'liq emas.
+
+    Jamlanma (`/api/summary`) tanlangan davrni ko'rsatadi: «avgustda
+    qancha qo'shildi». Bu esa umumiy holat: qoldiq, maqsad va unga
+    qancha qolgani. Ikkalasi har xil savolga javob bergani uchun
+    alohida turadi.
+    """
+    uid = user["user_id"]
+    prof = db.savings_profile(uid)
+    balance = db.savings_balance(uid)
+    goal = float(prof.get("goal") or 0)
+
+    out = {
+        "balance": balance,
+        "goal": goal,
+        "goal_note": prof.get("goal_note") or "",
+        "streak": db.savings_streak(uid),
+        "card": prof.get("card_state") or db.CARD_SORALMAGAN,
+        "percent": None,
+        "left": None,
+    }
+    if goal > 0:
+        out["percent"] = round(min(100.0, balance / goal * 100), 1)
+        out["left"] = round(max(0.0, goal - balance), 2)
+    return out
+
+
 @app.get("/api/transactions")
 def api_transactions(
     start: str | None = None,

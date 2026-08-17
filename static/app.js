@@ -29,11 +29,16 @@
   // validatordan ikkala mavzuda to'liq o'tadi (ΔE 24.7+).
   // Jamg'arma uchun binafsha: yashil (kirim) va qizil (chiqim) bilan
   // aralashmasin — u ikkalasidan ham boshqa toifadagi harakat.
+  //
+  // «Yechilgan» uchun binafshaning ochroq soyasi YETMADI — jonli
+  // ekranda ikkala nuqta bir xil ko'rindi. Shuning uchun u boshqa
+  // rangga (kuzatiladigan sariq-jigarrang) o'tkazildi: bu ikkisi
+  // yonma-yon turadi va farqlanishi shart.
   const STATUS = SCHEME === "light"
     ? { kirim: "#0ca30c", chiqim: "#d03b3b", qarz_berdim: "#2a78d6",
-        qarz_oldim: "#eb6834", jamgarma: "#7048c4", jamgarma_yechdim: "#9b7fd4" }
+        qarz_oldim: "#eb6834", jamgarma: "#7048c4", jamgarma_yechdim: "#b07d18" }
     : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#3987e5",
-        qarz_oldim: "#d95926", jamgarma: "#a98ae0", jamgarma_yechdim: "#8a6cc4" };
+        qarz_oldim: "#d95926", jamgarma: "#a98ae0", jamgarma_yechdim: "#e0b155" };
 
   const CATEGORY_PALETTE = SCHEME === "light"
     ? ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
@@ -378,6 +383,18 @@
     if (state.kind === "qarz") { renderCurrentKind(); loadRecent(false); }
   }
 
+  async function loadSavings() {
+    // Xato bo'lsa jim o'tamiz: jamg'arma holati qo'shimcha ma'lumot,
+    // uning yo'qligi butun ekranni yiqitmasligi kerak.
+    try {
+      state.savings = await api("/api/savings");
+    } catch (e) {
+      state.savings = null;
+      return;
+    }
+    if (state.kind === "jamgarma") renderCurrentKind();
+  }
+
   function renderCurrencyToggle() {
     const el = document.getElementById("currencyToggle");
     el.innerHTML = "";
@@ -512,25 +529,78 @@
     if (!qoygan && !yechgan) {
       renderDonut([], fmtMoneyParts(0, cur), "Jamg'arma");
       renderLegend([], cur);
-      listEl.innerHTML =
-        '<div class="empty-state">Bu davrda jamg\'arma harakati yo\'q.<br><br>' +
-        'Qo\'shish: <b>jamg\'armaga 500 ming o\'tkazdim</b></div>';
-      return;
+    } else {
+      renderDonut(
+        [
+          { value: qoygan, color: STATUS.jamgarma },
+          { value: yechgan, color: STATUS.jamgarma_yechdim },
+        ],
+        fmtMoneyParts(qoygan - yechgan, cur),
+        "Sof jamg'arma"
+      );
+      renderLegend([
+        { label: "🏦 Qo'yilgan", value: qoygan, color: STATUS.jamgarma },
+        { label: "🏧 Yechilgan", value: yechgan, color: STATUS.jamgarma_yechdim },
+      ], cur);
     }
 
-    renderDonut(
-      [
-        { value: qoygan, color: STATUS.jamgarma },
-        { value: yechgan, color: STATUS.jamgarma_yechdim },
-      ],
-      fmtMoneyParts(qoygan - yechgan, cur),
-      "Sof jamg'arma"
-    );
-    renderLegend([
-      { label: "🏦 Qo'yilgan", value: qoygan, color: STATUS.jamgarma },
-      { label: "🏧 Yechilgan", value: yechgan, color: STATUS.jamgarma_yechdim },
-    ], cur);
-    listEl.innerHTML = "";
+    listEl.innerHTML = renderSavingsBlock(qoygan || yechgan);
+  }
+
+  /**
+   * Umumiy qoldiq va maqsad. Halqa TANLANGAN DAVRni ko'rsatadi
+   * («avgustda qancha qo'shildi»), bu blok esa umumiy holatni —
+   * ikkalasi har xil savolga javob beradi va aralashtirilsa
+   * chalkashlik chiqadi.
+   */
+  function renderSavingsBlock(hadMovement) {
+    const s = state.savings;
+    if (!s) return "";
+
+    let html = '<div class="section-label">Jamg\'arma holati</div>';
+    html += `
+      <div class="cat-row">
+        <div class="cat-icon" style="background:${STATUS.jamgarma}22">🏦</div>
+        <div class="cat-info">
+          <div class="cat-name-row">
+            <span class="cat-name">Umumiy qoldiq</span>
+            <span class="cat-amount">${fmtMoney(s.balance, "som")}</span>
+          </div>
+        </div>
+      </div>`;
+
+    if (s.goal > 0) {
+      const pct = s.percent || 0;
+      const note = s.goal_note ? ` — ${escapeHtml(s.goal_note)}` : "";
+      html += `
+        <div class="cat-row">
+          <div class="cat-icon" style="background:${STATUS.jamgarma}22">🎯</div>
+          <div class="cat-info">
+            <div class="cat-name-row">
+              <span class="cat-name">Maqsad${note}</span>
+              <span class="cat-amount">${fmtMoney(s.goal, "som")}</span>
+            </div>
+            <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${pct.toFixed(0)}%;background:${STATUS.jamgarma}"></div></div>
+          </div>
+          <div class="cat-share">${pct.toFixed(0)}%</div>
+        </div>`;
+      html += s.left > 0
+        ? `<div class="hint-row">Yetishga <b>${fmtMoney(s.left, "som")}</b> qoldi</div>`
+        : '<div class="hint-row">🎉 Maqsadga yetdingiz!</div>';
+    } else {
+      html += '<div class="hint-row">Maqsad qo\'yilmagan. Botda: '
+            + '<b>/maqsad 10 mln</b></div>';
+    }
+
+    if (s.streak >= 2) {
+      html += `<div class="hint-row">🔥 Ketma-ket <b>${s.streak} oy</b> `
+            + "10% qoidasini bajaryapsiz</div>";
+    }
+    if (!hadMovement) {
+      html += '<div class="hint-row">Bu davrda harakat yo\'q. Qo\'shish: '
+            + '<b>jamg\'armaga 500 ming o\'tkazdim</b></div>';
+    }
+    return html;
   }
 
   function bindCategoryClicks() {
@@ -856,6 +926,7 @@
   function refreshAll() {
     loadSummary();
     loadDebts();
+    loadSavings();
     if (!document.getElementById("searchPanel").classList.contains("hidden")) runSearch();
   }
 
@@ -1143,7 +1214,7 @@
     }
     initTabs();
     initSearch();
-    await Promise.all([loadSummary(), loadDebts()]);
+    await Promise.all([loadSummary(), loadDebts(), loadSavings()]);
   }
 
   main();
