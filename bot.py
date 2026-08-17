@@ -888,6 +888,11 @@ _awaiting_proof = TTLStore(ttl_seconds=7200, max_items=500)
 _awaiting_erase = TTLStore(ttl_seconds=300, max_items=100)
 # Oxirgi bosqich: foydalanuvchi o'chirish so'zini yozishi kutilmoqda.
 _erase_typed = TTLStore(ttl_seconds=300, max_items=100)
+# «10 % ni jamg'armaga o'tkazamizmi?» taklifi: user_id -> summa.
+# Tugma bosilganda qaysi summa nazarda tutilgani shu yerdan olinadi.
+# Bot qayta ishga tushsa taklif yo'qoladi va bu joiz: eski xabardagi
+# tugma baribir dolzarb emas.
+_savings_offer = TTLStore(ttl_seconds=6 * 3600, max_items=500)
 
 
 class ImageError(Exception):
@@ -1263,6 +1268,14 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if touched:
         await check_budget_alerts(context, user_id, touched)
 
+    # Jamg'arma yozilgan bo'lsa — maqsad va seriya haqida javob.
+    if any(i["turi"] in config.SAVINGS_KINDS for i in parsed["yozuvlar"]):
+        await after_savings_entry(context, user_id, message)
+    else:
+        # Kirim yozilgan bo'lsa — «avval o'zingga to'la» eslatmasi.
+        await offer_savings_split(context, user_id, message,
+                                  parsed["yozuvlar"])
+
     await _celebrate(update, context, message, len(saved_ids))
 
 
@@ -1435,6 +1448,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("jam:"):
         await on_savings_callback(update, context)
+        return
+    if data == "jamqoy":
+        await on_savings_add_callback(update, context)
         return
 
     # --- Kategoriya tugmalari ---
@@ -2178,6 +2194,217 @@ async def on_savings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode=ParseMode.HTML)
 
 
+def _goal_bar(share: float, width: int = 12) -> str:
+    filled = max(0, min(width, round(share * width)))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _goal_block(user_id: int, lang: str, prof: dict, balance: float) -> str:
+    """Maqsad qatori. Maqsad qo'yilmagan bo'lsa bo'sh satr."""
+    goal = float(prof.get("goal") or 0)
+    if goal <= 0:
+        return ""
+    share = min(1.0, balance / goal)
+    note = f" — {reports.esc(prof['goal_note'])}" if prof.get("goal_note") else ""
+    return i18n.t(lang, "goal_progress",
+                  amount=reports.fmt_money(goal, "som"), note=note,
+                  bar=_goal_bar(share), percent=f"{share * 100:.0f}",
+                  left=reports.fmt_money(max(0.0, goal - balance), "som"))
+
+
+async def offer_savings_split(context: ContextTypes.DEFAULT_TYPE, user_id: int,
+                              message, items: list[dict]) -> None:
+    """Kirim yozilganda 10 % ni jamg'armaga ajratishni taklif qiladi.
+
+    Kitobning mag'zi «avval o'zingga to'la». Pul kelgan ON eng kuchli
+    payt: odam uni hali sarflamagan.
+
+    Taklif shu oyda 10 % ni allaqachon jamg'argan odamga ko'rsatilmaydi —
+    bajarilgan ishni qayta so'rash eslatmani shovqinga aylantiradi.
+    """
+    income = sum(float(i["summa"]) for i in items
+                 if i["turi"] == config.KIND_KIRIM and i["valyuta"] == "som")
+    if income <= 0:
+        return
+
+    now = datetime.now(config.TZ).date()
+    first = now.replace(day=1)
+    try:
+        month_income = await asyncio.to_thread(
+            db.income_in_period, user_id, first, now)
+        month_saved = await asyncio.to_thread(
+            db.savings_in_period, user_id, first, now)
+    except Exception:
+        return
+    if month_income > 0 and month_saved >= month_income * config.SAVINGS_RATE:
+        return                             # bu oy qoida allaqachon bajarilgan
+
+    ten = round(income * config.SAVINGS_RATE)
+    if ten < 1000:
+        return                             # arzimas summa uchun bezovta qilmaymiz
+
+    lang = lang_of(user_id, context)
+    _savings_offer.set(user_id, ten)
+    money = reports.fmt_money(ten, "som")
+    await message.reply_text(
+        i18n.t(lang, "savings_nudge_now",
+               income=reports.fmt_money(income, "som"), ten=money),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+            i18n.t(lang, "savings_nudge_button", ten=money),
+            callback_data="jamqoy")]]))
+
+
+async def after_savings_entry(context: ContextTypes.DEFAULT_TYPE, user_id: int,
+                              message) -> None:
+    """Jamg'arma yozuvidan keyin: maqsad, seriya va yetib borilgani."""
+    lang = lang_of(user_id, context)
+    balance = await asyncio.to_thread(db.savings_balance, user_id)
+    prof = await asyncio.to_thread(db.savings_profile, user_id)
+    goal = float(prof.get("goal") or 0)
+
+    # Maqsadga yangi yetilgan bo'lsa — bir marta tabriklaymiz.
+    if goal > 0 and balance >= goal and not prof.get("goal_reached_at"):
+        await asyncio.to_thread(db.mark_goal_reached, user_id)
+        note = f" — {reports.esc(prof['goal_note'])}" if prof.get("goal_note") else ""
+        await message.reply_text(
+            i18n.t(lang, "goal_reached", amount=reports.fmt_money(goal, "som"),
+                   note=note, balance=reports.fmt_money(balance, "som")),
+            parse_mode=ParseMode.HTML)
+        return
+
+    parts = []
+    block = _goal_block(user_id, lang, prof, balance)
+    if block:
+        parts.append(block)
+    streak = await asyncio.to_thread(db.savings_streak, user_id)
+    if streak >= 2:
+        parts.append(i18n.t(lang, "savings_streak", n=streak).strip())
+    if parts:
+        await message.reply_text("\n\n".join(parts), parse_mode=ParseMode.HTML)
+
+
+async def on_savings_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """«Ha, o'tkazdim» tugmasi — jamg'arma yozuvini o'zi qo'shadi."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+
+    amount = _savings_offer.pop(user_id)
+    if not amount:
+        await query.answer("Taklif eskirdi. Summani o'zingiz yozing.",
+                           show_alert=True)
+        return
+
+    await asyncio.to_thread(
+        db.add_transaction, user_id, config.KIND_JAMGARMA, float(amount),
+        "jamg'arma", "", None, None, "10% qoidasi", None, "som")
+    balance = await asyncio.to_thread(db.savings_balance, user_id)
+    streak = await asyncio.to_thread(db.savings_streak, user_id)
+
+    await query.answer()
+    await query.edit_message_text(
+        i18n.t(lang, "savings_nudge_saved",
+               amount=reports.fmt_money(amount, "som"),
+               balance=reports.fmt_money(balance, "som"),
+               streak=i18n.t(lang, "savings_streak", n=streak)
+               if streak >= 2 else ""),
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_goal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/maqsad — jamg'arma maqsadini qo'yish yoki ko'rish."""
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    msg = update.effective_message
+    args = context.args or []
+
+    if args and args[0].lower() in ("o'chir", "ochir", "удалить", "0"):
+        db.set_savings_goal(user_id, 0, "")
+        await msg.reply_text(i18n.t(lang, "goal_cleared"))
+        return
+
+    if args:
+        amount = _parse_amount_uz(" ".join(args))
+        if not amount or amount <= 0:
+            await msg.reply_text(i18n.t(lang, "goal_help"),
+                                 parse_mode=ParseMode.HTML)
+            return
+        # Summadan keyingi so'zlar — maqsadning nomi ("zaxira fond").
+        note = _goal_note_of(args)
+        db.set_savings_goal(user_id, amount, note)
+        balance = db.savings_balance(user_id)
+        share = min(1.0, balance / amount)
+        await msg.reply_text(
+            i18n.t(lang, "goal_set", amount=reports.fmt_money(amount, "som"),
+                   note=f" — {reports.esc(note)}" if note else "",
+                   balance=reports.fmt_money(balance, "som"),
+                   percent=f"{share * 100:.0f}", bar=_goal_bar(share),
+                   left=reports.fmt_money(max(0.0, amount - balance), "som")),
+            parse_mode=ParseMode.HTML)
+        return
+
+    prof = db.savings_profile(user_id)
+    if not float(prof.get("goal") or 0):
+        await msg.reply_text(i18n.t(lang, "goal_help"), parse_mode=ParseMode.HTML)
+        return
+    await msg.reply_text(
+        _goal_block(user_id, lang, prof, db.savings_balance(user_id)),
+        parse_mode=ParseMode.HTML)
+
+
+def _goal_note_of(args: list[str]) -> str:
+    """Maqsad nomi: summa va o'lchov birliklaridan keyingi so'zlar."""
+    skip = {"mln", "million", "ming", "tys", "тыс", "млн", "so'm", "som", "сум"}
+    words = [a for a in args
+             if not a.replace(",", "").replace(".", "").isdigit()
+             and a.lower() not in skip]
+    return " ".join(words)[:60]
+
+
+async def cmd_net_worth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/holatim — sof qiymat: jamg'arma + qarzdorlar − qarzim."""
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    w = db.net_worth(user_id)
+    await update.effective_message.reply_text(
+        i18n.t(lang, "net_worth",
+               savings=reports.fmt_money(w["savings"], "som"),
+               owed=reports.fmt_money(w["owed_to_me"], "som"),
+               iowe=reports.fmt_money(w["i_owe"], "som"),
+               icon="🟢" if w["total"] >= 0 else "🔴",
+               total=reports.fmt_money(w["total"], "som")),
+        parse_mode=ParseMode.HTML)
+
+
+async def cmd_debt_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/reja — 70/20/10 bo'yicha qarzdan chiqish rejasi."""
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    msg = update.effective_message
+
+    plan = db.debt_plan(user_id)
+    if plan is None:
+        owed = db.net_worth(user_id)["i_owe"]
+        if owed <= 0:
+            await msg.reply_text(i18n.t(lang, "debt_plan_none"),
+                                 parse_mode=ParseMode.HTML)
+        else:
+            await msg.reply_text(
+                i18n.t(lang, "debt_plan_no_income",
+                       debt=reports.fmt_money(owed, "som")),
+                parse_mode=ParseMode.HTML)
+        return
+
+    await msg.reply_text(
+        i18n.t(lang, "debt_plan",
+               debt=reports.fmt_money(plan["debt"], "som"),
+               income=reports.fmt_money(plan["income"], "som"),
+               monthly=reports.fmt_money(plan["monthly"], "som"),
+               months=plan["months"]),
+        parse_mode=ParseMode.HTML)
+
+
 async def check_budget_alerts(context: ContextTypes.DEFAULT_TYPE, user_id: int,
                               categories: set[str]) -> None:
     """Yozuv qo'shilgandan keyin byudjet oshganini tekshiradi.
@@ -2508,27 +2735,16 @@ async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
                               income=reports.fmt_money(income, "som"),
                               ten=reports.fmt_money(target, "som"),
                               ten_plain=f"{int(target):,}".replace(",", " "))
-            elif saved < target:
+            else:
+                # 10 % ni allaqachon bajarganlar bu ro'yxatga umuman
+                # tushmaydi (db.users_for_savings_reminder), shuning
+                # uchun bu yerga faqat kam jamg'arganlar keladi.
                 text = i18n.t(lang, "savings_month_low",
                               income=reports.fmt_money(income, "som"),
                               saved=reports.fmt_money(saved, "som"),
                               percent=f"{saved / income * 100:.0f}",
                               balance=reports.fmt_money(balance, "som"),
                               gap=reports.fmt_money(target - saved, "som"))
-            else:
-                # Qoidani bajargan odamga navbatdagi foydali gap —
-                # alohida karta yoki zaxira fondi o'lchovi.
-                if r["card_state"] != db.CARD_BOR:
-                    extra = i18n.t(lang, "savings_card_nudge",
-                                   balance=reports.fmt_money(balance, "som"))
-                else:
-                    extra = _cushion_line(user_id, lang, balance)
-                text = i18n.t(lang, "savings_month_good",
-                              income=reports.fmt_money(income, "som"),
-                              saved=reports.fmt_money(saved, "som"),
-                              percent=f"{saved / income * 100:.0f}",
-                              balance=reports.fmt_money(balance, "som"),
-                              extra=extra or "")
 
             # Kartasi hali so'ralmagan bo'lsa — shu xabarga tugma ilashtiramiz.
             markup = (_card_keyboard(lang)
@@ -2638,6 +2854,9 @@ BOT_COMMANDS = [
     ("holat", "Obuna holati va bugungi limitlar"),
     ("byudjet", "Oylik byudjet qo'yish"),
     ("jamgarma", "Shaxsiy jamg'arma va qoldiq"),
+    ("maqsad", "Jamg'arma maqsadi qo'yish"),
+    ("holatim", "Sof qiymat: jamg'arma va qarzlar"),
+    ("reja", "Qarzdan chiqish rejasi (70/20/10)"),
     ("eslatma", "Kunlik eslatmani sozlash"),
     ("kurs", "Dollar kursi"),
     ("taklif", "Do'st taklif qilib bepul kun olish"),
@@ -2793,6 +3012,9 @@ def main() -> None:
     app.add_handler(CommandHandler(["taklif", "referal"], cmd_referral))
     app.add_handler(CommandHandler(["byudjet", "budjet"], cmd_budget))
     app.add_handler(CommandHandler(["jamgarma", "jamgʻarma", "omonat"], cmd_savings))
+    app.add_handler(CommandHandler(["maqsad", "goal"], cmd_goal))
+    app.add_handler(CommandHandler(["holatim", "sofqiymat"], cmd_net_worth))
+    app.add_handler(CommandHandler(["reja", "qarzreja"], cmd_debt_plan))
     app.add_handler(CommandHandler("eslatma", cmd_reminder))
     app.add_handler(CommandHandler(["kurs", "valyuta"], cmd_rate))
     app.add_handler(CommandHandler("bugun", _period_command("bugun")))

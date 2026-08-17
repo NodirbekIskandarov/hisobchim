@@ -177,7 +177,63 @@ def summary_text(user_id: int, period: str) -> str:
         lines.append("")
         lines.append(f"<i>Kuniga o'rtacha: {fmt_money(chiqim / days)}</i>")
 
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    # Hisobot matni bu faylda o'zbekcha yozilgan (butun fayl shunday),
+    # shuning uchun quyidagi bo'limlar ham shu yerda turadi.
+    if period in ("oy", "otgan_oy"):
+        text += _babylon_score(t)
+    elif period == "yil":
+        text += _yearly_savings(user_id, start, end)
+    return text
+
+
+def _babylon_score(t: dict) -> str:
+    """Oylik uch savol — «Vavilonlik eng boy odam» qoidalari bo'yicha.
+
+    Uchtasi ham kitobning asosiy qoidalari: 10 % jamg'ardingmi,
+    topganingdan kam sarfladingmi, qarzing ko'paymadimi. Baho ATAYLAB
+    oddiy: uchta savol, uchta belgi. Murakkab ball tizimi o'qilmaydi.
+    """
+    kirim = t[config.KIND_KIRIM]
+    chiqim = t[config.KIND_CHIQIM]
+    saved = t[config.KIND_JAMGARMA] - t[config.KIND_JAMGARMA_YECHDIM]
+    new_debt = t[config.KIND_QARZ_OLDIM]
+
+    # Daromad yozilmagan oyda baho berish adolatsiz — birinchi ikki
+    # savolning ma'nosi qolmaydi.
+    if kirim <= 0:
+        return ""
+
+    rows = [
+        (saved >= kirim * config.SAVINGS_RATE,
+         "Daromadning 10% i jamg'arildi", "10% jamg'arilmadi"),
+        (chiqim < kirim,
+         "Daromaddan kam sarflandi", "Daromaddan ko'p sarflandi"),
+        (new_debt <= 0, "Qarz ko'paymadi", "Yangi qarz olindi"),
+    ]
+    score = sum(1 for ok, _, _ in rows if ok)
+    body = "\n".join(f"{'✅' if ok else '❌'} {yes if ok else no}"
+                     for ok, yes, no in rows)
+    return f"\n\n📜 <b>Bobil bahosi: {score}/3</b>\n{body}"
+
+
+def _yearly_savings(user_id: int, start: date, end: date) -> str:
+    """Yillik hisobotga jamg'arma bo'limi."""
+    lo, hi = start.isoformat()[:7], end.isoformat()[:7]
+    months = [m for m in db.savings_by_month(user_id, months=24)
+              if lo <= m["oy"] <= hi]
+    saved = sum(m["jamgarma"] for m in months)
+    if saved <= 0:
+        return ""
+    income = sum(m["kirim"] for m in months)
+    good = sum(1 for m in months
+               if m["kirim"] > 0
+               and m["jamgarma"] >= m["kirim"] * config.SAVINGS_RATE)
+    share = (f" — daromadingizning {saved / income * 100:.0f}%i"
+             if income > 0 else "")
+    return (f"\n\n🏦 <b>Yil davomida jamg'arma</b>\n"
+            f"Jami: <b>{fmt_money(saved)}</b>{share}\n"
+            f"10% qoidasi bajarilgan oylar: <b>{good} / {len(months)}</b>")
 
 
 def transaction_line(row, with_id: bool = True) -> str:

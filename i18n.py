@@ -759,23 +759,6 @@ T = {
                "не меняет образ жизни, но за год превращается в месячный "
                "доход."),
     },
-    # Oy oxiri — 10 % va undan ko'p
-    "savings_month_good": {
-        "uz": ("🏦 <b>Oylik jamg'arma xulosasi</b>\n\n"
-               "Daromad: <b>{income}</b>\n"
-               "Jamg'arma: <b>{saved}</b> — daromadingizning <b>{percent}%</b> i ✅\n"
-               "Umumiy jamg'armangiz: <b>{balance}</b>\n\n"
-               "Qoidani bajardingiz. Kitobda buni «hamyonni to'ldirish» "
-               "deyiladi va u boylikning birinchi bosqichi.\n\n"
-               "{extra}"),
-        "ru": ("🏦 <b>Итог накоплений за месяц</b>\n\n"
-               "Доход: <b>{income}</b>\n"
-               "Отложено: <b>{saved}</b> — это <b>{percent}%</b> дохода ✅\n"
-               "Всего накоплений: <b>{balance}</b>\n\n"
-               "Правило выполнено. В книге это называется «наполнение "
-               "кошелька» — первая ступень богатства.\n\n"
-               "{extra}"),
-    },
     # Daromadi yo'q oy
     "savings_month_no_income": {
         "uz": ("🏦 <b>Oy tugayapti</b>\n\n"
@@ -877,6 +860,160 @@ T = {
         "ru": ("🛡 Этих накоплений хватит примерно на <b>{months}</b> "
                "при среднем месячном расходе <b>{monthly}</b>."),
     },
+
+    # ---- Daromad yozilgan ONDA 10 % eslatmasi ----
+    #
+    # Kitobning mag'zi «avval o'zingga to'la». Pul kelgan ON eng kuchli
+    # payt: odam uni hali sarflamagan va qaror qabul qilish oson.
+    "savings_nudge_now": {
+        "uz": ("💰 <b>{income}</b> kirim yozildi.\n\n"
+               "Undan <b>10 % — {ten}</b>.\n\n"
+               "«Avval o'zingizga to'lang»: shu qismni hoziroq "
+               "jamg'armaga o'tkazsangiz, qolganiga yashash sezilmaydi. "
+               "Oy oxirida esa hech narsa ortmaydi — xarajat topilaveradi."),
+        "ru": ("💰 Записан доход <b>{income}</b>.\n\n"
+               "10 % от него — <b>{ten}</b>.\n\n"
+               "«Сначала заплатите себе»: если переведёте эту часть в "
+               "накопления прямо сейчас, жизнь на остальное не изменится. "
+               "А в конце месяца не остаётся ничего — расходы найдутся."),
+    },
+    "savings_nudge_button": {"uz": "🏦 Ha, {ten} o'tkazdim",
+                             "ru": "🏦 Да, отложил {ten}"},
+    "savings_nudge_saved": {
+        "uz": ("✅ <b>{amount}</b> jamg'armaga yozildi.\n\n"
+               "Jamg'armangiz: <b>{balance}</b>{streak}"),
+        "ru": ("✅ <b>{amount}</b> записано в накопления.\n\n"
+               "Ваши накопления: <b>{balance}</b>{streak}"),
+    },
+
+    # ---- Jamg'arma seriyasi ----
+    "savings_streak": {
+        "uz": "\n\n🔥 Ketma-ket <b>{n} oy</b> 10 % qoidasini bajaryapsiz.",
+        "ru": "\n\n🔥 <b>{n} мес.</b> подряд выполняете правило 10 %.",
+    },
+
+    # ---- Jamg'arma maqsadi ----
+    "goal_set": {
+        "uz": ("🎯 Maqsad qo'yildi: <b>{amount}</b>{note}\n\n"
+               "Hozirgi jamg'armangiz: <b>{balance}</b> ({percent}%)\n"
+               "{bar}\n\n"
+               "Yetishga <b>{left}</b> qoldi."),
+        "ru": ("🎯 Цель установлена: <b>{amount}</b>{note}\n\n"
+               "Сейчас накоплено: <b>{balance}</b> ({percent}%)\n"
+               "{bar}\n\n"
+               "До цели осталось <b>{left}</b>."),
+    },
+    "goal_progress": {
+        "uz": ("🎯 Maqsad: <b>{amount}</b>{note}\n"
+               "{bar} {percent}%\n"
+               "Qoldi: <b>{left}</b>"),
+        "ru": ("🎯 Цель: <b>{amount}</b>{note}\n"
+               "{bar} {percent}%\n"
+               "Осталось: <b>{left}</b>"),
+    },
+    "goal_reached": {
+        "uz": ("🎉 <b>Maqsadga yetdingiz!</b>\n\n"
+               "Maqsad: <b>{amount}</b>{note}\n"
+               "Jamg'armangiz: <b>{balance}</b>\n\n"
+               "Kitobda aytilganidek, eng qiyini birinchi qadam edi — "
+               "uni bosib o'tdingiz. Yangi maqsad qo'yasizmi?\n"
+               "<code>/maqsad 20 mln</code>"),
+        "ru": ("🎉 <b>Цель достигнута!</b>\n\n"
+               "Цель: <b>{amount}</b>{note}\n"
+               "Накопления: <b>{balance}</b>\n\n"
+               "Как сказано в книге, труднее всего первый шаг — вы его "
+               "сделали. Поставим новую цель?\n"
+               "<code>/maqsad 20 млн</code>"),
+    },
+    "goal_help": {
+        "uz": ("🎯 <b>Jamg'arma maqsadi</b>\n\n"
+               "Maqsad qo'ysangiz, har o'tkazmada qancha qolganini "
+               "ko'rsatib boraman.\n\n"
+               "<b>Qo'yish:</b>\n"
+               "<code>/maqsad 10 mln</code>\n"
+               "<code>/maqsad 5 mln zaxira fond</code>\n\n"
+               "<b>O'chirish:</b>\n"
+               "<code>/maqsad o'chir</code>"),
+        "ru": ("🎯 <b>Цель накоплений</b>\n\n"
+               "Поставьте цель — и я буду показывать, сколько осталось "
+               "при каждом пополнении.\n\n"
+               "<b>Установить:</b>\n"
+               "<code>/maqsad 10 млн</code>\n"
+               "<code>/maqsad 5 млн резервный фонд</code>\n\n"
+               "<b>Удалить:</b>\n"
+               "<code>/maqsad удалить</code>"),
+    },
+    "goal_cleared": {"uz": "🗑 Maqsad o'chirildi.", "ru": "🗑 Цель удалена."},
+
+    # ---- Sof qiymat ----
+    "net_worth": {
+        "uz": ("⚖️ <b>Sof qiymatingiz</b>\n\n"
+               "🏦 Jamg'arma: <b>{savings}</b>\n"
+               "📤 Sizga qarzdorlar: <b>{owed}</b>\n"
+               "📥 Sizning qarzingiz: <b>−{iowe}</b>\n"
+               "───────────────\n"
+               "{icon} <b>Jami: {total}</b>\n\n"
+               "<i>Bu — oqim emas, holat. Kirim/chiqim har oy "
+               "o'zgaradi, bu raqam esa qayerga borayotganingizni "
+               "ko'rsatadi.</i>"),
+        "ru": ("⚖️ <b>Ваш капитал</b>\n\n"
+               "🏦 Накопления: <b>{savings}</b>\n"
+               "📤 Вам должны: <b>{owed}</b>\n"
+               "📥 Ваш долг: <b>−{iowe}</b>\n"
+               "───────────────\n"
+               "{icon} <b>Итого: {total}</b>\n\n"
+               "<i>Это не поток, а состояние. Доходы и расходы меняются "
+               "каждый месяц, а эта цифра показывает, куда вы идёте.</i>"),
+    },
+
+    # ---- Qarzdan chiqish rejasi (70/20/10) ----
+    "debt_plan": {
+        "uz": ("📋 <b>Qarzdan chiqish rejasi</b>\n\n"
+               "Ochiq qarzingiz: <b>{debt}</b>\n"
+               "Oylik o'rtacha daromadingiz: <b>{income}</b>\n\n"
+               "Kitobdagi tuyachi Dabasir usuli — daromadni uchga bo'ling:\n"
+               "• <b>70 %</b> — yashashga\n"
+               "• <b>20 %</b> — qarzni uzishga (<b>{monthly}</b>)\n"
+               "• <b>10 %</b> — jamg'armaga (qarz bo'lsa ham!)\n\n"
+               "Shu tartibda <b>{months} oyda</b> qarzdan chiqasiz.\n\n"
+               "<i>Nega qarz bo'lsa ham jamg'ariladi: hammasini qarzga "
+               "bersangiz, kutilmagan xarajat chiqqan kuni yana qarz "
+               "olasiz va aylana yopilmaydi.</i>"),
+        "ru": ("📋 <b>План выхода из долгов</b>\n\n"
+               "Открытый долг: <b>{debt}</b>\n"
+               "Средний месячный доход: <b>{income}</b>\n\n"
+               "Метод погонщика верблюдов Дабасира из книги — разделите "
+               "доход на три части:\n"
+               "• <b>70 %</b> — на жизнь\n"
+               "• <b>20 %</b> — на погашение долга (<b>{monthly}</b>)\n"
+               "• <b>10 %</b> — в накопления (даже с долгом!)\n\n"
+               "В таком темпе вы закроете долг за <b>{months} мес.</b>\n\n"
+               "<i>Почему копить нужно даже с долгом: если отдавать всё, "
+               "то при первом же непредвиденном расходе вы снова "
+               "занимаете — и круг не разрывается.</i>"),
+    },
+    "debt_plan_none": {
+        "uz": ("✅ Ochiq qarzingiz yo'q.\n\n"
+               "Kitobning maslahati: qarzsiz odam daromadining 10 % ini "
+               "emas, imkoni boricha ko'proq qismini jamg'armaga "
+               "yo'naltirishi mumkin."),
+        "ru": ("✅ Открытых долгов нет.\n\n"
+               "Совет книги: без долгов можно откладывать не 10 %, "
+               "а столько, сколько позволяет доход."),
+    },
+    "debt_plan_no_income": {
+        "uz": ("📋 Ochiq qarzingiz: <b>{debt}</b>\n\n"
+               "Reja tuzish uchun daromadingizni bilishim kerak. "
+               "Daromad kelganda yozib qo'ying — men 70/20/10 bo'yicha "
+               "aniq muddat hisoblab beraman."),
+        "ru": ("📋 Открытый долг: <b>{debt}</b>\n\n"
+               "Чтобы построить план, мне нужен ваш доход. Запишите его, "
+               "когда он появится — я рассчитаю срок по правилу 70/20/10."),
+    },
+
+    # «Bobil bahosi» va yillik jamg'arma matnlari bu yerda EMAS:
+    # ular hisobot matnining bir qismi va reports.py da turadi —
+    # o'sha faylning qolgan hamma matni ham o'sha yerda.
 
     # ---- Ketma-ket kunlar (streak) ----
     "streak_grew": {

@@ -80,13 +80,29 @@ CREATE TABLE IF NOT EXISTS shaxsiy.savings_profile (
     nudged_at     TEXT,
     -- Oy oxiridagi eslatma qaysi oy uchun yuborilgani: "YYYY-MM".
     -- Bir oyda ikki marta yuborilib qolmasin.
-    reminded_month TEXT NOT NULL DEFAULT ''
+    reminded_month TEXT NOT NULL DEFAULT '',
+    -- Jamg'arma maqsadi (asosiy valyutada). 0 — maqsad qo'yilmagan.
+    goal          REAL NOT NULL DEFAULT 0,
+    goal_note     TEXT NOT NULL DEFAULT '',
+    -- Maqsadga yetilgani bir marta tabriklanadi.
+    goal_reached_at TEXT
 );
 """
 
 CARD_SORALMAGAN = "soralmagan"
 CARD_YOQ = "yoq"
 CARD_BOR = "bor"
+
+# Shaxsiy bazadagi jadvallarga keyin qo'shilgan ustunlar:
+# (jadval, ustun, SQL). Sxemadagi ta'rif bilan MOS bo'lishi shart.
+PRIVATE_TABLE_MIGRATIONS = [
+    ("savings_profile", "goal",
+     "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goal REAL NOT NULL DEFAULT 0"),
+    ("savings_profile", "goal_note",
+     "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goal_note TEXT NOT NULL DEFAULT ''"),
+    ("savings_profile", "goal_reached_at",
+     "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goal_reached_at TEXT"),
+]
 
 SCHEMA = """
 -- Foydalanuvchilar: kirish huquqi, bepul sinov va obuna muddati.
@@ -340,6 +356,14 @@ def init() -> None:
             if table == "transactions":
                 continue      # shaxsiy bazada, sxemada allaqachon bor
             cols = set(_cols(conn, table))
+            if cols and column not in cols:
+                conn.execute(sql)
+
+        # Shaxsiy bazadagi jadvallarga keyin qo'shilgan ustunlar.
+        # `CREATE TABLE IF NOT EXISTS` mavjud jadvalni o'zgartirmaydi,
+        # shuning uchun bu yerda qo'lda tekshiriladi.
+        for table, column, sql in PRIVATE_TABLE_MIGRATIONS:
+            cols = set(_cols(conn, table, "shaxsiy"))
             if cols and column not in cols:
                 conn.execute(sql)
 
@@ -1253,6 +1277,105 @@ def income_in_period(user_id: int, start: date, end: date) -> float:
     return round(float(row[0] or 0), 2)
 
 
+def savings_by_month(user_id: int, months: int = 24) -> list[dict]:
+    """Oylar kesimida daromad va sof jamg'arma, yangisidan eskisiga.
+
+    Seriya (ketma-ket necha oy 10 % jamg'argan) va yillik xulosa shu
+    yerdan chiqadi — ikkalasi uchun alohida so'rov yozishning hojati yo'q.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT substr(occurred_on, 1, 7) AS oy,
+                      COALESCE(SUM(CASE WHEN kind = ?
+                                        THEN COALESCE(amount_base, amount) END), 0) AS kirim,
+                      COALESCE(SUM(CASE WHEN kind = ?
+                                        THEN COALESCE(amount_base, amount)
+                                        WHEN kind = ?
+                                        THEN -COALESCE(amount_base, amount) END), 0) AS jamgarma
+               FROM transactions
+               WHERE user_id = ? AND kind IN (?, ?, ?)
+               GROUP BY oy ORDER BY oy DESC LIMIT ?""",
+            (config.KIND_KIRIM, config.KIND_JAMGARMA, config.KIND_JAMGARMA_YECHDIM,
+             user_id, config.KIND_KIRIM, config.KIND_JAMGARMA,
+             config.KIND_JAMGARMA_YECHDIM, months)).fetchall()
+    return [{"oy": r["oy"], "kirim": float(r["kirim"] or 0),
+             "jamgarma": float(r["jamgarma"] or 0)} for r in rows]
+
+
+def savings_streak(user_id: int) -> int:
+    """Ketma-ket necha oy 10 % qoidasi bajarilgan.
+
+    Joriy oy hali tugamagani uchun u seriyani UZMAYDI: bajarilgan
+    bo'lsa qo'shiladi, bajarilmagan bo'lsa shunchaki e'tiborga
+    olinmaydi. Aks holda har oyning 1-sanasida seriya nolga tushib,
+    butun mexanika ma'nosini yo'qotardi.
+
+    Daromadi bo'lmagan oy ham uzmaydi: daromad kelmagan oyda 10 %
+    jamg'ara olmaslik odamning aybi emas.
+    """
+    this_month = datetime.now(config.TZ).strftime("%Y-%m")
+    streak = 0
+    for row in savings_by_month(user_id):
+        ok = row["kirim"] > 0 and row["jamgarma"] >= row["kirim"] * config.SAVINGS_RATE
+        if row["oy"] == this_month:
+            if ok:
+                streak += 1
+            continue                      # tugamagan oy seriyani uzmaydi
+        if row["kirim"] <= 0:
+            continue                      # daromadsiz oy ham uzmaydi
+        if not ok:
+            break
+        streak += 1
+    return streak
+
+
+def net_worth(user_id: int) -> dict:
+    """Sof qiymat: jamg'arma + menga qarzdorlar − mening qarzim.
+
+    Bot boshqa hamma joyda OQIM ko'rsatadi (bu oy qancha kirdi/chiqdi).
+    Bu esa TO'PLANMA — «hozir qanday holatdaman» degan savolga javob.
+    Kitobning butun mavzusi aynan shu.
+    """
+    saving = savings_balance(user_id)
+    berdim = oldim = 0.0
+    for r in open_debts(user_id):
+        amount = float(r["amount_base"] if r["amount_base"] is not None else r["amount"])
+        if r["kind"] == config.KIND_QARZ_BERDIM:
+            berdim += amount              # menga qaytariladi — aktiv
+        else:
+            oldim += amount               # men qaytaraman — passiv
+    return {"savings": saving, "owed_to_me": round(berdim, 2),
+            "i_owe": round(oldim, 2),
+            "total": round(saving + berdim - oldim, 2)}
+
+
+def debt_plan(user_id: int) -> dict | None:
+    """Qarzdan chiqish rejasi — kitobdagi Dabasir usuli (70/20/10).
+
+    Daromadning 20 % i qarzga ajratilsa necha oyda uziladi. Daromad yoki
+    ochiq qarz bo'lmasa reja ham bo'lmaydi (None) — o'ylab topilgan
+    raqam berilmaydi.
+
+    Daromad oxirgi 90 kunning o'rtachasidan olinadi: bitta oyning
+    tasodifiy katta yoki kichik daromadi rejani buzmasin.
+    """
+    worth = net_worth(user_id)
+    debt = worth["i_owe"]
+    if debt <= 0:
+        return None
+
+    end = datetime.now(config.TZ).date()
+    start = end - timedelta(days=89)
+    income = income_in_period(user_id, start, end) / 3
+    if income <= 0:
+        return None
+
+    monthly = income * 0.20
+    return {"debt": debt, "income": round(income, 2),
+            "monthly": round(monthly, 2),
+            "months": max(1, math.ceil(debt / monthly))}
+
+
 def savings_profile(user_id: int) -> dict:
     """Jamg'arma odati holati. Yozuv bo'lmasa bo'sh holat qaytadi."""
     with get_conn() as conn:
@@ -1261,7 +1384,20 @@ def savings_profile(user_id: int) -> dict:
     if row:
         return dict(row)
     return {"user_id": user_id, "card_state": CARD_SORALMAGAN, "asked_at": None,
-            "answered_at": None, "nudged_at": None, "reminded_month": ""}
+            "answered_at": None, "nudged_at": None, "reminded_month": "",
+            "goal": 0.0, "goal_note": "", "goal_reached_at": None}
+
+
+def set_savings_goal(user_id: int, amount: float, note: str = "") -> None:
+    with get_conn() as conn:
+        _upsert_profile(conn, user_id, goal=float(amount), goal_note=note,
+                        goal_reached_at=None)
+
+
+def mark_goal_reached(user_id: int) -> None:
+    now = datetime.now(config.TZ).isoformat(timespec="seconds")
+    with get_conn() as conn:
+        _upsert_profile(conn, user_id, goal_reached_at=now)
 
 
 def _upsert_profile(conn, user_id: int, **fields) -> None:
@@ -1324,12 +1460,20 @@ def users_for_savings_reminder() -> list[dict]:
         prof = profiles.get(uid) or {}
         if (prof.get("reminded_month") or "") == month:
             continue                       # shu oy allaqachon yuborilgan
+
+        income = income_in_period(uid, first, today_)
+        saved = savings_in_period(uid, first, today_)
+        # Qoidani bajargan odamga «jamg'ar» deb yozish eslatmani
+        # shovqinga aylantiradi — u chetda qoladi. Bajarilganini u
+        # oylik hisobotdagi «Bobil bahosi» dan ko'radi.
+        if income > 0 and saved >= income * config.SAVINGS_RATE:
+            continue
         out.append({
             "user_id": uid,
             "lang": r["lang"] or "uz",
             "card_state": prof.get("card_state") or CARD_SORALMAGAN,
-            "income": income_in_period(uid, first, today_),
-            "saved": savings_in_period(uid, first, today_),
+            "income": income,
+            "saved": saved,
             "balance": savings_balance(uid),
         })
     return out
