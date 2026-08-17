@@ -124,11 +124,10 @@ def backup_one(name, path, env_name, table, stamp):
         log(f"{name}: fayl yo'q ({path}) — o'tkazib yuborildi")
         return None, 0
 
+    # Zaxira yo'l ATAYLAB yo'q: noto'g'ri kalit bilan "muvaffaqiyatli"
+    # nusxa olish eng yomon natija bo'lardi — xato faqat tiklashga
+    # urinilgan kuni bilinardi. Izoh config.private_key_pragma() da.
     key = _key(env_name)
-    # Shaxsiy baza uchun alohida kalit qo'yilmagan bo'lsa asosiysi
-    # ishlatiladi — config.private_key_pragma() bilan bir xil mantiq.
-    if not key and env_name == "PRIVATE_DB_KEY":
-        key = _key("DB_ENCRYPTION_KEY")
 
     plain = OUT / f"{name}-{stamp}.db"
     enc = OUT / f"{name}-{stamp}.db.enc"

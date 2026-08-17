@@ -128,12 +128,25 @@ def db_key_pragma() -> str:
 def private_key_pragma() -> str:
     """Shaxsiy bazaning kaliti.
 
-    Ko'rsatilmagan bo'lsa asosiy kalit ishlatiladi — bu faqat mahalliy
-    ishlab chiqish uchun qulaylik. Serverda ikkalasi HAR XIL bo'lishi
-    kerak, aks holda ajratishning ma'nosi qolmaydi.
+    Bu yerda ATAYLAB zaxira yo'l YO'Q. Avval "ko'rsatilmagan bo'lsa
+    asosiy kalitni ishlat" degan qulaylik bor edi va u jonli serverda
+    aynan bir marta zarar keltirdi: kod kalit qo'shilishidan oldin
+    ishga tushdi, zaxira yo'l jimgina asosiy kalitni oldi va butun
+    baza NOTO'G'RI kalit bilan shifrlandi. Xato o'sha zahoti emas,
+    keyingi ishga tushishda "file is not a database" bo'lib chiqdi.
+
+    Endi noto'g'ri sozlama darrov va ochiq to'xtatadi: yarim to'g'ri
+    ishlashdan ko'ra ishga tushmagani afzal.
     """
-    return _key_pragma(PRIVATE_DB_KEY or DB_ENCRYPTION_KEY,
-                       "PRIVATE_DB_KEY")
+    if DB_ENCRYPTION_KEY and not PRIVATE_DB_KEY:
+        raise SystemExit(
+            "DB_ENCRYPTION_KEY bor, lekin PRIVATE_DB_KEY yo'q.\n"
+            "Foydalanuvchilarning moliyaviy yozuvlari ALOHIDA kalit bilan "
+            "shifrlanadi — asosiy kalit bu yerda ishlatilmaydi, aks holda "
+            "admin panel ularni ocholardi.\n"
+            "Yangi kalit: python -c "
+            "\"import secrets; print(secrets.token_hex(32))\"")
+    return _key_pragma(PRIVATE_DB_KEY, "PRIVATE_DB_KEY")
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
