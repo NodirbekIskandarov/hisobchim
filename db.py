@@ -751,8 +751,12 @@ def search_transactions(
     params: list = [user_id, start.isoformat(), end.isoformat()]
 
     if kind:
-        where.append("kind = ?")
-        params.append(kind)
+        # `kind` bitta tur ham, ro'yxat ham bo'lishi mumkin. Ro'yxat
+        # kerak bo'ladigan joy — Mini App dagi «Qarz» va «Jamg'arma»
+        # yorliqlari: ular ikkitadan turni birga ko'rsatadi.
+        kinds = [kind] if isinstance(kind, str) else list(kind)
+        where.append("kind IN (%s)" % ", ".join("?" for _ in kinds))
+        params += kinds
     if currency:
         where.append("currency = ?")
         params.append(currency)

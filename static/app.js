@@ -406,6 +406,10 @@
       renderQarzKind();
       return;
     }
+    if (state.kind === "jamgarma") {
+      renderJamgarmaKind();
+      return;
+    }
 
     const data = state.summary && state.summary.by_currency[cur];
     const listEl = document.getElementById("categoryList");
@@ -488,6 +492,47 @@
     bindSettleButtons();
   }
 
+  /**
+   * «Jamg'arma» yorlig'i: qo'yilgan va yechilgan pul, o'rtasida sof
+   * qiymat. Halqa markazida shu davrda jamg'armaga QANCHA QO'SHILGANI
+   * turadi — umumiy qoldiq emas: yorliq davr (kun/hafta/oy/yil)
+   * bo'yicha ishlaydi va boshqa yorliqlar bilan bir xil mantiqda
+   * bo'lishi kerak.
+   */
+  function renderJamgarmaKind() {
+    const cur = state.currency;
+    const listEl = document.getElementById("categoryList");
+    const data = state.summary && state.summary.by_currency[cur];
+
+    if (!data) { renderDonut([], "…", ""); renderLegend([], cur); listEl.innerHTML = ""; return; }
+
+    const qoygan = data.jamgarma_qoygan || 0;
+    const yechgan = data.jamgarma_yechgan || 0;
+
+    if (!qoygan && !yechgan) {
+      renderDonut([], fmtMoneyParts(0, cur), "Jamg'arma");
+      renderLegend([], cur);
+      listEl.innerHTML =
+        '<div class="empty-state">Bu davrda jamg\'arma harakati yo\'q.<br><br>' +
+        'Qo\'shish: <b>jamg\'armaga 500 ming o\'tkazdim</b></div>';
+      return;
+    }
+
+    renderDonut(
+      [
+        { value: qoygan, color: STATUS.jamgarma },
+        { value: yechgan, color: STATUS.jamgarma_yechdim },
+      ],
+      fmtMoneyParts(qoygan - yechgan, cur),
+      "Sof jamg'arma"
+    );
+    renderLegend([
+      { label: "🏦 Qo'yilgan", value: qoygan, color: STATUS.jamgarma },
+      { label: "🏧 Yechilgan", value: yechgan, color: STATUS.jamgarma_yechdim },
+    ], cur);
+    listEl.innerHTML = "";
+  }
+
   function bindCategoryClicks() {
     const listEl = document.getElementById("categoryList");
     listEl.querySelectorAll("[data-cat-click]").forEach((el) => {
@@ -534,7 +579,13 @@
     });
     // «hammasi» — valyuta filtri yo'q degani, uni serverga yubormaymiz.
     if (state.currency !== ALL) params.set("currency", state.currency);
-    if (state.kind !== ALL) params.set("kind", state.kind);
+    // «Jamg'arma» yorlig'i ikkita turni qamraydi — server vergul bilan
+    // berilgan ro'yxatni qabul qiladi.
+    if (state.kind === "jamgarma") {
+      params.set("kind", "jamgarma,jamgarma_yechdim");
+    } else if (state.kind !== ALL) {
+      params.set("kind", state.kind);
+    }
 
     let data;
     try {

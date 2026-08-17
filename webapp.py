@@ -255,9 +255,12 @@ def api_summary(
             "qarz_berdim": totals[config.KIND_QARZ_BERDIM],
             "qarz_oldim": totals[config.KIND_QARZ_OLDIM],
             # Jamg'arma «farq» ga KIRMAYDI: u sarflangan pul emas.
-            # Alohida ko'rsatiladi, sof qiymati (qo'ygan minus yechgan).
+            # Sof qiymati (qo'ygan minus yechgan) va ikkala tomoni ham
+            # beriladi — «Jamg'arma» yorlig'i ularni alohida chizadi.
             "jamgarma": round(totals[config.KIND_JAMGARMA]
                               - totals[config.KIND_JAMGARMA_YECHDIM], 2),
+            "jamgarma_qoygan": totals[config.KIND_JAMGARMA],
+            "jamgarma_yechgan": totals[config.KIND_JAMGARMA_YECHDIM],
             "chiqim_kategoriyalari": [
                 {"kategoriya": c, "summa": s, "soni": n} for c, s, n in chiqim_cats
             ],
@@ -369,7 +372,14 @@ def api_transactions(
 ):
     start_d = _parse_date(start, date(2000, 1, 1))
     end_d = _parse_date(end, reports.today())
-    if kind and kind not in config.KINDS:
+    # Vergul bilan bir nechta tur berilishi mumkin — «Jamg'arma»
+    # yorlig'i qo'yilgan va yechilgan pulni birga ko'rsatadi.
+    if kind and "," in kind:
+        kinds = [k for k in kind.split(",") if k]
+        if any(k not in config.KINDS for k in kinds):
+            raise HTTPException(400, "Noto'g'ri turi")
+        kind = kinds
+    elif kind and kind not in config.KINDS:
         raise HTTPException(400, "Noto'g'ri turi")
     # «hammasi» — valyuta filtri yo'q degani. /api/summary uni valyutalar
     # ro'yxatiga qo'shadi, shuning uchun bu yerda ham qabul qilinishi shart.
