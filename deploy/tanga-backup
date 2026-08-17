@@ -1,0 +1,208 @@
+#!/opt/tanga/.venv/bin/python
+"""Hisobchi bazalarining shifrlangan zaxira nusxasi.
+
+IKKITA baza bor va ikkalasi ham nusxalanadi:
+
+  tanga.db          — foydalanuvchilar, obuna, to'lov, AI sarfi
+  tanga_shaxsiy.db  — foydalanuvchilarning moliyaviy yozuvlari
+
+Ikkinchisi alohida kalit bilan shifrlangan (izoh config.py da). Uni
+nusxalashni unutish ma'lumot yo'qolishining eng jimgina yo'li bo'lardi:
+bot ishlayveradi, xato chiqmaydi, lekin disk buzilgan kunda odamlarning
+butun tarixi qaytarilmasdi.
+
+WAL rejimidagi bazani oddiy `cp` bilan nusxalash xavfli — yarim yozilgan
+tranzaksiya tushib qolishi mumkin. Shuning uchun sqlite'ning o'z
+`.backup` mexanizmi ishlatiladi: u izchil (consistent) nusxa beradi.
+
+Ishlatish:  tanga-backup            — nusxa olib, egaga yuboradi
+            tanga-backup --local    — faqat serverda saqlaydi
+"""
+import io
+import os
+import subprocess
+import sqlite3
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+OUT = Path("/var/backups/tanga")
+KEY = "/etc/tanga-backup.key"
+KEEP_DAYS = 14
+ENV = "/opt/tanga/.env"
+
+# (nomi, fayl, .env dagi kalit nomi, sanaladigan jadval)
+DATABASES = [
+    ("hisobchi", "/opt/tanga/tanga.db", "DB_ENCRYPTION_KEY", "users"),
+    ("shaxsiy", "/opt/tanga/tanga_shaxsiy.db", "PRIVATE_DB_KEY", "transactions"),
+]
+
+
+def log(msg):
+    print(f"{datetime.now():%Y-%m-%d %H:%M:%S} | {msg}", flush=True)
+
+
+def env(name):
+    try:
+        for line in Path(ENV).read_text(encoding="utf-8").splitlines():
+            if line.startswith(name + "="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def send_to_telegram(enc, caption):
+    token = env("TELEGRAM_TOKEN")
+    owners = [o for o in env("OWNER_IDS").replace(",", " ").split() if o.isdigit()]
+    if not token or not owners:
+        log("TELEGRAM_TOKEN yoki OWNER_IDS yo'q — tashqariga yuborilmadi")
+        return
+    import urllib.request
+    for owner in owners:
+        try:
+            boundary = "----hisobchi" + os.urandom(8).hex()
+            body = bytearray()
+
+            def field(name, value):
+                body.extend(f"--{boundary}\r\n".encode())
+                body.extend(
+                    f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+                body.extend(f"{value}\r\n".encode())
+
+            field("chat_id", owner)
+            field("caption", caption)
+            body.extend(f"--{boundary}\r\n".encode())
+            body.extend(
+                f'Content-Disposition: form-data; name="document"; '
+                f'filename="{enc.name}"\r\n'.encode())
+            body.extend(b"Content-Type: application/octet-stream\r\n\r\n")
+            body.extend(enc.read_bytes())
+            body.extend(f"\r\n--{boundary}--\r\n".encode())
+
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendDocument",
+                data=bytes(body),
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+            with urllib.request.urlopen(req, timeout=90) as r:
+                ok = b'"ok":true' in r.read()
+            log(f"Telegramga yuborildi ({owner}): {'ha' if ok else 'yoq'}")
+        except Exception as exc:
+            log(f"Telegramga yuborilmadi ({owner}): {exc}")
+
+
+# --- Shifrlangan bazani ochish -------------------------------------------- #
+# Baza SQLCipher bilan shifrlangan bo'lsa oddiy sqlite3 uni ocholmaydi.
+# Har bir bazaning kaliti .env da o'z nomi bilan turadi.
+
+def _key(env_name):
+    try:
+        for line in io.open(ENV, encoding="utf-8"):
+            if line.startswith(env_name + "="):
+                return line.split("=", 1)[1].strip().lower()
+    except OSError:
+        pass
+    return ""
+
+
+def _open_db(path, key, readonly=False):
+    """Bazaga ulanadi. Kalit bo'lsa SQLCipher, bo'lmasa oddiy sqlite3."""
+    if not key:
+        uri = f"file:{path}?mode=ro" if readonly else str(path)
+        return sqlite3.connect(uri, uri=readonly, timeout=30)
+
+    from sqlcipher3 import dbapi2 as sqlcipher
+    con = sqlcipher.connect(str(path), timeout=30)
+    con.execute(f"PRAGMA key = \"x'{key}'\"")
+    return con
+
+
+def backup_one(name, path, env_name, table, stamp):
+    """Bitta bazani nusxalab, tekshirib, shifrlaydi. (fayl, sanoq) qaytaradi."""
+    if not Path(path).exists():
+        log(f"{name}: fayl yo'q ({path}) — o'tkazib yuborildi")
+        return None, 0
+
+    key = _key(env_name)
+    # Shaxsiy baza uchun alohida kalit qo'yilmagan bo'lsa asosiysi
+    # ishlatiladi — config.private_key_pragma() bilan bir xil mantiq.
+    if not key and env_name == "PRIVATE_DB_KEY":
+        key = _key("DB_ENCRYPTION_KEY")
+
+    plain = OUT / f"{name}-{stamp}.db"
+    enc = OUT / f"{name}-{stamp}.db.enc"
+
+    # Zaxira nusxasi ham SQLCipher shaklida bo'ladi: diskda hech qachon
+    # ochiq baza yotmaydi. backup() manbadagi shifrni saqlab ko'chiradi.
+    src = _open_db(path, key, readonly=True)
+    dst = _open_db(plain, key)
+    with dst:
+        src.backup(dst)
+    src.close()
+    dst.close()
+
+    check = _open_db(plain, key)
+    rows = check.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    integrity = check.execute("PRAGMA integrity_check").fetchone()[0]
+    check.close()
+    if integrity != "ok":
+        log(f"{name}: XATO butunlik tekshiruvi -> {integrity}")
+        plain.unlink(missing_ok=True)
+        return None, 0
+    log(f"{name}: nusxa olindi, {rows} ta {table}, butunlik ok")
+
+    subprocess.run(
+        ["openssl", "enc", "-aes-256-cbc", "-pbkdf2", "-iter", "300000", "-salt",
+         "-in", str(plain), "-out", str(enc), "-pass", f"file:{KEY}"],
+        check=True)
+    plain.unlink()
+    os.chmod(enc, 0o600)
+    log(f"{name}: shifrlandi {enc.name} ({enc.stat().st_size / 1024:.0f} KB)")
+    return enc, rows
+
+
+def main():
+    OUT.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d-%H%M")
+
+    made, failed = [], []
+    for name, path, env_name, table in DATABASES:
+        try:
+            enc, rows = backup_one(name, path, env_name, table, stamp)
+        except Exception as exc:
+            log(f"{name}: XATO {exc}")
+            failed.append(name)
+            continue
+        if enc:
+            made.append((name, enc, table, rows))
+
+    if not made:
+        log("XATO: birorta ham nusxa olinmadi")
+        return 1
+
+    cutoff = time.time() - KEEP_DAYS * 86400
+    removed = 0
+    for old in OUT.glob("*-*.db.enc"):
+        if old.stat().st_mtime < cutoff:
+            old.unlink()
+            removed += 1
+    if removed:
+        log(f"{removed} ta eski nusxa o'chirildi")
+
+    if "--local" not in sys.argv:
+        for name, enc, table, rows in made:
+            send_to_telegram(enc, (
+                f"Zaxira nusxa {stamp} — {name}\n"
+                f"{rows} ta {table}\n\n"
+                f"AES-256 bilan shifrlangan. Ochish uchun serverdagi "
+                f"{KEY} kerak."))
+
+    log(f"tayyor. Nusxalar: {len(list(OUT.glob('*-*.db.enc')))}")
+    # Bittasi tushib qolgan bo'lsa cron xato deb bilsin — jimgina
+    # yarim zaxira eng yomon holat.
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

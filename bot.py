@@ -2378,6 +2378,22 @@ async def job_winback(context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("Qaytarish xabari: %s ta yuborildi", sent)
 
 
+async def job_erase_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Admin panel so'ragan shaxsiy yozuvlarni o'chiradi.
+
+    Panel foydalanuvchini o'chirganda uning moliyaviy yozuvlariga
+    yeta olmaydi — shaxsiy bazaning kaliti unda yo'q. Shu vazifa
+    o'sha ishni bajaradi.
+    """
+    try:
+        n = await asyncio.to_thread(db.drain_erase_queue)
+    except Exception:
+        log.warning("O'chirish navbatini bo'shatib bo'lmadi", exc_info=True)
+        return
+    if n:
+        log.info("O'chirish navbati: %s ta foydalanuvchi yozuvlari o'chirildi", n)
+
+
 def schedule_jobs(app: Application) -> None:
     """Vaqtga bog'liq vazifalarni ro'yxatga oladi."""
     jq = app.job_queue
@@ -2411,9 +2427,16 @@ def schedule_jobs(app: Application) -> None:
                   job_kwargs={"trigger": "cron", "hour": 12, "minute": 0,
                               "timezone": config.TZ},
                   name="qaytarish")
+    # Admin panel so'ragan o'chirishlar. Panelda shaxsiy bazaning kaliti
+    # yo'q, shuning uchun yozuvlarni faqat bot o'chira oladi. Ishga
+    # tushishda darrov, keyin har 10 daqiqada — o'chirish so'rovi uzoq
+    # kutib turmasin.
+    jq.run_once(job_erase_queue, when=10, name="ochirish-boshlangich")
+    jq.run_repeating(job_erase_queue, interval=600, first=600,
+                     name="ochirish-navbati")
     log.info("Rejalashtirilgan vazifalar yoqildi: eslatma (har soat), "
              "muddat ogohlantirishi (10:00), haftalik xulosa (dushanba 9:30), "
-             "qaytarish (12:00)")
+             "qaytarish (12:00), o'chirish navbati (har 10 daqiqa)")
 
 
 # --------------------------------------------------------------------------- #

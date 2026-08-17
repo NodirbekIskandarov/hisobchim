@@ -11,8 +11,18 @@ from typing import Iterable
 
 import config
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS transactions (
+# Shaxsiy baza: FAQAT foydalanuvchining o'z moliyasi.
+#
+# Bu jadvallar ataylab asosiy bazada emas. Asosiy bazani admin panel
+# ham ochadi (unga obuna, to'lov, AI sarfi kerak) — yozuvlar o'sha
+# yerda bo'lsa panel ularni o'qiy olardi. Alohida fayl va alohida
+# kalit buni imkonsiz qiladi. Izoh config.PRIVATE_DB_PATH yonida.
+#
+# `shaxsiy.` prefiksi ATTACH qilingan bazani bildiradi. Qolgan
+# so'rovlar jadval nomini prefikssiz yozadi va SQLite uni o'zi shu
+# yerdan topadi: nom asosiy bazada yo'q, keyingi o'ringa qaraydi.
+PRIVATE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS shaxsiy.transactions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id      INTEGER NOT NULL,
     kind         TEXT    NOT NULL,
@@ -25,12 +35,31 @@ CREATE TABLE IF NOT EXISTS transactions (
     settled      INTEGER NOT NULL DEFAULT 0,
     receipt_id   TEXT,
     currency     TEXT    NOT NULL DEFAULT 'som',
-    created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+    rate         REAL    NOT NULL DEFAULT 1,
+    amount_base  REAL
 );
 
-CREATE INDEX IF NOT EXISTS idx_tx_user_date ON transactions(user_id, occurred_on);
-CREATE INDEX IF NOT EXISTS idx_tx_user_kind ON transactions(user_id, kind);
+CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_user_date
+    ON transactions(user_id, occurred_on);
+CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_user_kind
+    ON transactions(user_id, kind);
+CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_receipt
+    ON transactions(user_id, receipt_id);
 
+-- Kategoriya bo'yicha oylik byudjet. Bu ham shaxsiy moliya: odam nimaga
+-- qancha ajratgani uning daromadi haqida ham gapiradi.
+CREATE TABLE IF NOT EXISTS shaxsiy.budgets (
+    user_id   INTEGER NOT NULL,
+    category  TEXT    NOT NULL,
+    amount    REAL    NOT NULL,
+    currency  TEXT    NOT NULL DEFAULT 'som',
+    notified  TEXT    NOT NULL DEFAULT '',
+    PRIMARY KEY (user_id, category, currency)
+);
+"""
+
+SCHEMA = """
 -- Foydalanuvchilar: kirish huquqi, bepul sinov va obuna muddati.
 CREATE TABLE IF NOT EXISTS users (
     user_id          INTEGER PRIMARY KEY,
@@ -87,15 +116,28 @@ CREATE TABLE IF NOT EXISTS rates (
     PRIMARY KEY (day, currency)
 );
 
--- Kategoriya bo'yicha oylik byudjet. 80% va 100% da bir martadan
--- ogohlantiriladi; `notified` shu oyni «YYYY-MM:daraja» ko'rinishida saqlaydi.
-CREATE TABLE IF NOT EXISTS budgets (
-    user_id   INTEGER NOT NULL,
-    category  TEXT    NOT NULL,
-    amount    REAL    NOT NULL,
-    currency  TEXT    NOT NULL DEFAULT 'som',
-    notified  TEXT    NOT NULL DEFAULT '',
-    PRIMARY KEY (user_id, category, currency)
+-- Kunlik yozuvlar SONI. Admin panel uchun yagona ko'prik.
+--
+-- Panelга «bu odam botdan foydalanyaptimi» degan savolga javob kerak:
+-- obunani uzaytirish, sinov berish va limitni hal qilish shunga
+-- tayanadi. Sonning o'zi moliyaviy ma'lumot emas — «340 ta yozuv»
+-- odamning nimaga pul sarflaganini aytmaydi. Summa, kategoriya va
+-- izoh esa shu yerga UMUMAN chiqmaydi: ular shaxsiy bazada qoladi.
+CREATE TABLE IF NOT EXISTS entry_counts (
+    user_id INTEGER NOT NULL,
+    day     TEXT    NOT NULL,
+    n       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_entry_day ON entry_counts(day);
+
+-- Admin panel foydalanuvchini o'chirganda uning shaxsiy yozuvlarini
+-- O'ZI o'chira olmaydi — shaxsiy bazaning kaliti unda yo'q. Shuning
+-- uchun u shu yerga so'rov qoldiradi, bot esa uni bajaradi.
+CREATE TABLE IF NOT EXISTS private_erase_queue (
+    user_id  INTEGER PRIMARY KEY,
+    asked_at TEXT NOT NULL DEFAULT (datetime('now')),
+    done_at  TEXT
 );
 """
 
@@ -153,6 +195,7 @@ def _open(path: str, timeout: int):
     if not config.DB_ENCRYPTION_KEY:
         conn = sqlite3.connect(path, timeout=timeout)
         conn.row_factory = sqlite3.Row
+        conn.execute("ATTACH DATABASE ? AS shaxsiy", (config.PRIVATE_DB_PATH,))
         return conn
 
     from sqlcipher3 import dbapi2 as sqlcipher
@@ -161,6 +204,11 @@ def _open(path: str, timeout: int):
     conn.execute(f"PRAGMA key = {config.db_key_pragma()}")
     # Row sinfi modulga bog'liq — sqlite3.Row ni bu yerga qo'yib bo'lmaydi.
     conn.row_factory = sqlcipher.Row
+    # Shaxsiy baza — alohida fayl, alohida kalit. ATTACH dagi KEY asosiy
+    # kalitdan mustaqil: shu tufayli asosiy kalitni biladigan (masalan
+    # admin panel) shaxsiy bazani ocholmaydi.
+    conn.execute(f"ATTACH DATABASE ? AS shaxsiy KEY {config.private_key_pragma()}",
+                 (config.PRIVATE_DB_PATH,))
     return conn
 
 
@@ -172,7 +220,14 @@ def get_conn():
     conn.execute("PRAGMA foreign_keys = ON")
     # WAL: bot.py va webapp.py bir vaqtda o'qishi/yozishi mumkin — o'qish
     # yozishni bloklamaydi. Bir marta o'rnatiladi, keyingi ulanishlarga ham tegishli.
+    #
+    # Ikkala baza uchun alohida qo'yiladi — WAL har bir faylning o'z
+    # xossasi. Eslatma: WAL da ikki bazaga tegadigan bitta tranzaksiya
+    # global atomik emas. Bizda bunday joy bittagina — yozuv qo'shilganda
+    # `entry_counts` ham yangilanadi — va u yerda eng yomoni sanoq bir
+    # birlikka adashishi, ya'ni ko'rinishga taalluqli, pulga emas.
     conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA shaxsiy.journal_mode = WAL")
     try:
         yield conn
         conn.commit()
@@ -180,25 +235,128 @@ def get_conn():
         conn.close()
 
 
+def _cols(conn, table: str, schema: str = "") -> list[str]:
+    """Jadval ustunlari. `schema` — 'main' yoki 'shaxsiy'.
+
+    Diqqat: PRAGMA da baza nomi qavs ICHIDA emas, PRAGMA nomining
+    OLDIDA yoziladi — `PRAGMA main.table_info(t)`, `table_info(main.t)`
+    emas. Ikkinchisi sintaksis xatosi beradi.
+    """
+    prefix = f"{schema}." if schema else ""
+    return [r["name"] for r in conn.execute(f"PRAGMA {prefix}table_info({table})")]
+
+
+def _move_to_private(conn, table: str) -> int:
+    """Jadvalni asosiy bazadan shaxsiy bazaga ko'chiradi. Bir martalik.
+
+    Ko'chirish va o'chirish BITTA tranzaksiyada bo'lishi kerak edi, lekin
+    WAL da ikki baza orasida bu kafolatlanmaydi. Shuning uchun tartib
+    shunday: avval nusxa olinadi, nusxa TEKSHIRILADI, keyingina asl
+    o'chiriladi. Yarim yo'lda uzilsa eng yomoni nusxa ikki joyda qoladi
+    va keyingi ishga tushishda qayta urinib ko'riladi — ma'lumot
+    yo'qolmaydi.
+    """
+    if table not in {r["name"] for r in conn.execute(
+            "SELECT name FROM main.sqlite_master WHERE type='table'")}:
+        return 0
+
+    src = _cols(conn, table, "main")
+    dst = _cols(conn, table, "shaxsiy")
+    shared = [c for c in src if c in dst]
+    cols = ", ".join(shared)
+
+    n = int(conn.execute(f"SELECT COUNT(*) FROM main.{table}").fetchone()[0])
+    if n:
+        conn.execute(f"INSERT OR REPLACE INTO shaxsiy.{table} ({cols}) "
+                     f"SELECT {cols} FROM main.{table}")
+        moved = int(conn.execute(
+            f"SELECT COUNT(*) FROM shaxsiy.{table}").fetchone()[0])
+        if moved < n:
+            raise RuntimeError(
+                f"{table}: {n} ta yozuvdan {moved} tasi ko'chdi — "
+                "asl nusxa o'chirilmaydi")
+    conn.execute(f"DROP TABLE main.{table}")
+    return n
+
+
 def init() -> None:
     with get_conn() as conn:
         conn.executescript(SCHEMA)
-        existing = {r["name"] for r in conn.execute("PRAGMA table_info(transactions)")}
-        for column, sql in MIGRATIONS:
-            if column not in existing:
-                conn.execute(sql)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_tx_receipt ON transactions(user_id, receipt_id)"
-        )
+        conn.executescript(PRIVATE_SCHEMA)
+
+        # Eski bazada `transactions` hali asosiy faylda bo'lishi mumkin.
+        # Ko'chirishdan OLDIN unga yetishmayotgan ustunlarni qo'shamiz,
+        # aks holda nusxada `rate`/`amount_base` tushib qolardi.
+        main_tables = {r["name"] for r in conn.execute(
+            "SELECT name FROM main.sqlite_master WHERE type='table'")}
+        if "transactions" in main_tables:
+            existing = set(_cols(conn, "transactions", "main"))
+            for column, sql in MIGRATIONS:
+                if column not in existing:
+                    conn.execute(sql.replace("transactions",
+                                             "main.transactions", 1))
+            for table, column, sql in TABLE_MIGRATIONS:
+                if table == "transactions" and column not in existing:
+                    conn.execute(sql.replace("transactions",
+                                             "main.transactions", 1))
+            moved = _move_to_private(conn, "transactions")
+            if moved:
+                log_moved("transactions", moved)
+        if "budgets" in main_tables:
+            moved = _move_to_private(conn, "budgets")
+            if moved:
+                log_moved("budgets", moved)
+
         for table, column, sql in TABLE_MIGRATIONS:
-            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if table == "transactions":
+                continue      # shaxsiy bazada, sxemada allaqachon bor
+            cols = set(_cols(conn, table))
             if cols and column not in cols:
                 conn.execute(sql)
+
         # Eski yozuvlarda amount_base bo'sh: so'mlilarini darhol to'ldiramiz,
         # valyutalilarini backfill_base() tarmoq orqali kurs olib to'ldiradi.
         conn.execute(
             "UPDATE transactions SET amount_base = amount, rate = 1 "
             "WHERE amount_base IS NULL AND currency = 'som'")
+
+        _rebuild_entry_counts(conn)
+
+
+def log_moved(table: str, n: int) -> None:
+    import logging
+    logging.getLogger(__name__).warning(
+        "%s: %s ta yozuv shaxsiy bazaga ko'chirildi", table, n)
+
+
+def _rebuild_entry_counts(conn) -> None:
+    """Admin panel ko'radigan sanoqni shaxsiy bazadan qayta yig'adi.
+
+    Faqat SON ko'chadi. Ko'chirishdan keyin va har ishga tushishda
+    chaqiriladi: sanoq surilib qolgan bo'lsa (masalan yozuv qo'shilgan
+    payt uzilish bo'lgan) shu yerda tuzaladi.
+    """
+    rows = conn.execute(
+        "SELECT user_id, occurred_on AS day, COUNT(*) AS n "
+        "FROM transactions GROUP BY user_id, occurred_on").fetchall()
+    conn.execute("DELETE FROM entry_counts")
+    conn.executemany(
+        "INSERT INTO entry_counts (user_id, day, n) VALUES (?, ?, ?)",
+        [(r["user_id"], r["day"], r["n"]) for r in rows])
+
+
+def _bump_entries(conn, user_id: int, day: str, delta: int) -> None:
+    """Yozuvlar sanog'ini o'zgartiradi (admin panel uchun).
+
+    Sanoq noldan pastga tushmaydi va nol bo'lgan qator o'chiriladi —
+    jadval kerakmas qatorlar bilan o'smasin.
+    """
+    conn.execute(
+        "INSERT INTO entry_counts (user_id, day, n) VALUES (?, ?, ?) "
+        "ON CONFLICT(user_id, day) DO UPDATE SET n = MAX(0, n + ?)",
+        (user_id, day, max(0, delta), delta))
+    conn.execute("DELETE FROM entry_counts WHERE user_id = ? AND day = ? AND n <= 0",
+                 (user_id, day))
 
 
 def app_settings() -> dict[str, str]:
@@ -325,6 +483,7 @@ def add_transaction(
             (user_id, kind, float(amount), category, note, person,
              occurred_on, raw_text, receipt_id, currency, rate, amount_base),
         )
+        _bump_entries(conn, user_id, occurred_on, +1)
         return int(cur.lastrowid)
 
 
@@ -350,14 +509,21 @@ def add_many(rows: list[dict]) -> list[int]:
                  r.get("currency", "som"), rate, amount_base),
             )
             ids.append(int(cur.lastrowid))
+            _bump_entries(conn, r["user_id"], r["occurred_on"], +1)
     return ids
 
 
 def delete_transaction(user_id: int, tx_id: int) -> bool:
     with get_conn() as conn:
+        # Sanoqni kamaytirish uchun qaysi kun ekanini oldindan bilish kerak.
+        row = conn.execute(
+            "SELECT occurred_on FROM transactions WHERE id = ? AND user_id = ?",
+            (tx_id, user_id)).fetchone()
         cur = conn.execute(
             "DELETE FROM transactions WHERE id = ? AND user_id = ?", (tx_id, user_id)
         )
+        if cur.rowcount and row:
+            _bump_entries(conn, user_id, row["occurred_on"], -1)
         return cur.rowcount > 0
 
 
@@ -607,10 +773,16 @@ def rows_by_receipt(user_id: int, receipt_id: str) -> list[sqlite3.Row]:
 
 def delete_receipt(user_id: int, receipt_id: str) -> int:
     with get_conn() as conn:
+        days = conn.execute(
+            "SELECT occurred_on, COUNT(*) n FROM transactions "
+            "WHERE user_id = ? AND receipt_id = ? GROUP BY occurred_on",
+            (user_id, receipt_id)).fetchall()
         cur = conn.execute(
             "DELETE FROM transactions WHERE user_id = ? AND receipt_id = ?",
             (user_id, receipt_id),
         )
+        for d in days:
+            _bump_entries(conn, user_id, d["occurred_on"], -d["n"])
         return cur.rowcount
 
 
@@ -1180,7 +1352,31 @@ def erase_user(user_id: int) -> dict:
         conn.execute("UPDATE users SET referred_by = NULL WHERE referred_by = ?",
                      (user_id,))
         conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM private_erase_queue WHERE user_id = ?", (user_id,))
     return {"transactions": tx, "usage": usage}
+
+
+def drain_erase_queue() -> int:
+    """Admin panel so'ragan o'chirishlarni bajaradi.
+
+    Panelda shaxsiy bazaning kaliti yo'q, shuning uchun u foydalanuvchini
+    o'chirganda yozuvlarini o'zi o'chira olmaydi — navbatga qo'yadi.
+    Botning soatlik vazifasi va har ishga tushishi shu navbatni bo'shatadi.
+
+    Qaytaradi: nechta foydalanuvchi tozalangani.
+    """
+    with get_conn() as conn:
+        ids = [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM private_erase_queue WHERE done_at IS NULL")]
+        for uid in ids:
+            conn.execute("DELETE FROM transactions WHERE user_id = ?", (uid,))
+            conn.execute("DELETE FROM budgets WHERE user_id = ?", (uid,))
+            conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (uid,))
+        # Navbat qatorining o'zi ham qoldirilmaydi: unda foydalanuvchi
+        # id si turadi, ya'ni u ham iz.
+        conn.execute("DELETE FROM private_erase_queue WHERE done_at IS NULL")
+    return len(ids)
 
 
 def set_blocked(user_id: int, blocked: bool) -> bool:

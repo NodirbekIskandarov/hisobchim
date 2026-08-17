@@ -85,22 +85,55 @@ DB_PATH = os.getenv("DB_PATH", "tanga.db")
 DB_ENCRYPTION_KEY = os.getenv("DB_ENCRYPTION_KEY", "").strip().lower()
 
 
-def db_key_pragma() -> str:
-    """`PRAGMA key` uchun qiymat.
+# --------------------------------------------------------------------------- #
+# Shaxsiy baza
+# --------------------------------------------------------------------------- #
+#
+# Foydalanuvchining moliyaviy yozuvlari (`transactions`) va byudjetlari
+# ALOHIDA faylda, ALOHIDA kalit bilan saqlanadi.
+#
+# Nima uchun ikkita baza. Admin panel bitta bazani bot bilan baham
+# ko'radi: unga obuna, to'lov va AI sarfi kerak. Yozuvlar ham o'sha
+# faylda bo'lsa, panel ularni istagan vaqtda o'qiy olardi — himoya
+# faqat "kod so'ramaydi" degan va'daga tayanardi. Endi panelda bu
+# kalit YO'Q: yozuvlarni ko'rmaslik va'da emas, imkonsizlik.
+#
+# DIQQAT: bu kalit yo'qolsa foydalanuvchilarning yozuvlari BUTUNLAY
+# tiklanmaydi. Uni serverdan tashqarida ham saqlang.
+PRIVATE_DB_PATH = os.getenv("PRIVATE_DB_PATH", "tanga_shaxsiy.db")
+PRIVATE_DB_KEY = os.getenv("PRIVATE_DB_KEY", "").strip().lower()
+
+
+def _key_pragma(key: str, name: str) -> str:
+    """Kalitni SQLCipher tushunadigan ko'rinishga keltiradi.
 
     SQLCipher x'...' shaklini XOM kalit deb qabul qiladi va kalit hosil
     qilish bosqichini o'tkazib yuboradi. Hex ishlatishimizning sababi:
     PRAGMA bog'langan parametrni qabul qilmaydi, hex esa qo'shtirnoq
     qochirish muammosini butunlay yo'q qiladi.
     """
-    key = DB_ENCRYPTION_KEY
     if len(key) != 64 or any(ch not in "0123456789abcdef" for ch in key):
         raise SystemExit(
-            "DB_ENCRYPTION_KEY 64 ta o'n oltilik belgidan iborat bo'lishi kerak "
+            f"{name} 64 ta o'n oltilik belgidan iborat bo'lishi kerak "
             f"(hozir {len(key)} ta). Yangi kalit: python -c "
             "\"import secrets; print(secrets.token_hex(32))\""
         )
     return f"\"x'{key}'\""
+
+
+def db_key_pragma() -> str:
+    return _key_pragma(DB_ENCRYPTION_KEY, "DB_ENCRYPTION_KEY")
+
+
+def private_key_pragma() -> str:
+    """Shaxsiy bazaning kaliti.
+
+    Ko'rsatilmagan bo'lsa asosiy kalit ishlatiladi — bu faqat mahalliy
+    ishlab chiqish uchun qulaylik. Serverda ikkalasi HAR XIL bo'lishi
+    kerak, aks holda ajratishning ma'nosi qolmaydi.
+    """
+    return _key_pragma(PRIVATE_DB_KEY or DB_ENCRYPTION_KEY,
+                       "PRIVATE_DB_KEY")
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
