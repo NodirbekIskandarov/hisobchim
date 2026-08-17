@@ -788,16 +788,14 @@ T = {
                "Nega so'rayapman: bitta hisobda turgan pul «bor» bo'lib "
                "ko'rinadi va sezilmasdan sarflanadi. Alohida kartadagi "
                "pulga qo'l urish uchun ongli harakat kerak — shuning "
-               "o'zi uni saqlab qoladi.\n\n"
-               "Kitobda bu «pulni yo'qotishdan asrash» deyiladi."),
+               "o'zi uni saqlab qoladi."),
         "ru": ("💳 <b>Один вопрос</b>\n\n"
                "Есть ли у вас <b>отдельная банковская карта</b> для "
                "накоплений?\n\n"
                "Зачем спрашиваю: деньги на одном счёте выглядят как "
                "«есть» и тратятся незаметно. Чтобы тронуть деньги на "
                "отдельной карте, нужно осознанное действие — это само по "
-               "себе их сохраняет.\n\n"
-               "В книге это называется «защити свои сокровища»."),
+               "себе их сохраняет."),
     },
     "savings_card_yes": {"uz": "✅ Ha, alohida kartam bor",
                          "ru": "✅ Да, есть отдельная карта"},
