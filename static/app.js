@@ -27,9 +27,13 @@
   // status warning/serious juftligi (sariq/to'q sariq) oddiy ko'rishda ham
   // ajratib bo'lmas darajada yaqin (ΔE 13.6 < 15). Ko'k+to'q sariq juftligi
   // validatordan ikkala mavzuda to'liq o'tadi (ΔE 24.7+).
+  // Jamg'arma uchun binafsha: yashil (kirim) va qizil (chiqim) bilan
+  // aralashmasin — u ikkalasidan ham boshqa toifadagi harakat.
   const STATUS = SCHEME === "light"
-    ? { kirim: "#0ca30c", chiqim: "#d03b3b", qarz_berdim: "#2a78d6", qarz_oldim: "#eb6834" }
-    : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#3987e5", qarz_oldim: "#d95926" };
+    ? { kirim: "#0ca30c", chiqim: "#d03b3b", qarz_berdim: "#2a78d6",
+        qarz_oldim: "#eb6834", jamgarma: "#7048c4", jamgarma_yechdim: "#9b7fd4" }
+    : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#3987e5",
+        qarz_oldim: "#d95926", jamgarma: "#a98ae0", jamgarma_yechdim: "#8a6cc4" };
 
   const CATEGORY_PALETTE = SCHEME === "light"
     ? ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
@@ -422,9 +426,15 @@
         fmtMoneyParts(data.farq, cur),
         "Farq"
       );
+      // Jamg'arma halqaga QO'SHILMAYDI: halqa kirim/chiqim nisbatini
+      // ko'rsatadi, jamg'arma esa sarflangan pul emas. Lekin yorliqda
+      // turadi — «avval o'zingga to'la» qoidasi ko'zga tashlansin.
       renderLegend([
         { label: "Kirim", value: data.kirim, color: STATUS.kirim },
         { label: "Chiqim", value: data.chiqim, color: STATUS.chiqim },
+        ...(data.jamgarma
+          ? [{ label: "🏦 Jamg'arma", value: data.jamgarma, color: STATUS.jamgarma }]
+          : []),
       ], cur);
       listEl.innerHTML =
         renderCategorySection("Kirim kategoriyalari", data.kirim_kategoriyalari, data.kirim, cur, "kirim") +
@@ -847,7 +857,8 @@
       <div class="sheet-row">
         <div class="sheet-label">Turi</div>
         <div class="chip-grid">
-          ${["chiqim", "kirim", "qarz_berdim", "qarz_oldim"].map((k) =>
+          ${["chiqim", "kirim", "qarz_berdim", "qarz_oldim",
+             "jamgarma", "jamgarma_yechdim"].map((k) =>
             `<button class="chip ${k === addForm.kind ? "active" : ""}" data-kind="${k}">${kindIcon(k)} ${escapeHtml(kindLabel(k))}</button>`
           ).join("")}
         </div>

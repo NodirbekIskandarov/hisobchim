@@ -230,6 +230,8 @@ def api_me(user: dict = Depends(current_user)):
             config.KIND_KIRIM: config.INCOME_CATEGORIES,
             config.KIND_QARZ_BERDIM: config.DEBT_CATEGORIES,
             config.KIND_QARZ_OLDIM: config.DEBT_CATEGORIES,
+            config.KIND_JAMGARMA: config.SAVINGS_CATEGORIES,
+            config.KIND_JAMGARMA_YECHDIM: config.SAVINGS_CATEGORIES,
         },
     }
 
@@ -252,6 +254,10 @@ def api_summary(
             "farq": totals[config.KIND_KIRIM] - totals[config.KIND_CHIQIM],
             "qarz_berdim": totals[config.KIND_QARZ_BERDIM],
             "qarz_oldim": totals[config.KIND_QARZ_OLDIM],
+            # Jamg'arma «farq» ga KIRMAYDI: u sarflangan pul emas.
+            # Alohida ko'rsatiladi, sof qiymati (qo'ygan minus yechgan).
+            "jamgarma": round(totals[config.KIND_JAMGARMA]
+                              - totals[config.KIND_JAMGARMA_YECHDIM], 2),
             "chiqim_kategoriyalari": [
                 {"kategoriya": c, "summa": s, "soni": n} for c, s, n in chiqim_cats
             ],
@@ -418,8 +424,11 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         raise HTTPException(404, "Yozuv topilmadi")
 
     if body.kind and body.kind != row["kind"]:
-        if row["kind"] not in (config.KIND_CHIQIM, config.KIND_KIRIM) or \
-           body.kind not in (config.KIND_CHIQIM, config.KIND_KIRIM):
+        # Jamg'armani kirim/chiqimga (va teskarisiga) almashtirish
+        # ATAYLAB taqiqlanadi: bu qoldiqni jimgina buzardi. Kerak
+        # bo'lsa yozuvni o'chirib, qaytadan yozish to'g'ri yo'l.
+        swappable = (config.KIND_CHIQIM, config.KIND_KIRIM)
+        if row["kind"] not in swappable or body.kind not in swappable:
             raise HTTPException(400, "Bu yozuv turini almashtirib bo'lmaydi")
         new_category = body.category or config.fallback_category(body.kind)
         if new_category not in config.categories_for(body.kind):

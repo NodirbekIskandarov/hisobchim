@@ -127,6 +127,14 @@ dollar alohida-alohida ko'rsatiladi (kurs orqali qo'shilmaydi).
 <code>akamdan 1 mln qarz oldim</code>
 → kim kimga qarzdorligi alohida kuzatiladi
 
+<b>Shaxsiy jamg'arma:</b>
+<code>jamg'armaga 500 ming o'tkazdim</code>
+<code>omonatga 1 mln qo'ydim</code>
+<code>jamg'armadan 200 ming oldim</code>
+→ Jamg'arma <b>chiqim emas</b>: bu pul sarflanmadi, sizda
+qoldi. Shuning uchun «Farq» ga qo'shilmaydi va hisobotda
+alohida turadi.
+
 <b>Sanani ko'rsatish:</b>
 <code>kecha dorixonaga 90 ming</code>
 <code>1-avgustda benzin 100 ming</code>
@@ -199,12 +207,45 @@ Tugmalar yoki buyruqlar orqali:
 Har birida: kirim, chiqim, farq, kategoriyalar
 foizli diagramma bilan va kunlik o'rtacha.
 
+Oylik hisobot oxirida <b>«Bobil bahosi»</b> ham bor — uchta
+savol: 10% jamg'arildimi, daromaddan kam sarfladingizmi,
+qarz ko'paymadimi.
+
 /oxirgi — oxirgi 12 ta yozuv
 /qarz — ochiq qarzlar ro'yxati
 /yopdim 12 — qarzni yopilgan deb belgilash
 
 ━━━━━━━━━━━━━━━━━━━━
-<b>6️⃣ SAVOL BERISH</b> 💬
+<b>6️⃣ JAMG'ARMA VA BOYLIK</b> 🏦
+
+Bu bo'lim «Vavilonlik eng boy odam» (G. Clason) kitobidagi
+qoidalarga asoslangan. Kitobning mag'zi bitta jumlada:
+<b>topganingizning kamida 10% i o'zingizga qolishi kerak</b>.
+
+/jamgarma — qoldiq, alohida karta holati va maslahat
+/maqsad — jamg'arma maqsadi qo'yish
+   <code>/maqsad 10 mln</code> yoki <code>/maqsad 5 mln zaxira fond</code>
+/holatim — <b>sof qiymat</b>: jamg'arma + sizga qarzdorlar
+   − sizning qarzingiz. Bu oqim emas, <b>holat</b>.
+/reja — qarzdan chiqish rejasi (70/20/10)
+
+<b>Bot o'zi nima qiladi:</b>
+• Kirim yozsangiz — 10% ni hisoblab, bitta tugma bilan
+  jamg'armaga o'tkazishni taklif qiladi
+• Oyning oxirgi kuni 18:00 da — jamg'arma haqida eslatma
+  (agar o'sha oy 10% ni bajargan bo'lsangiz, bezovta
+  qilmaydi)
+• Ketma-ket necha oy 10% ni bajarganingizni sanaydi
+• Jamg'armangiz o'rtacha oylik chiqimingizga necha oyga
+  yetishini ko'rsatadi
+
+<b>Alohida karta:</b> jamg'armani kundalik kartada
+saqlamang. Bitta hisobda turgan pul «bor» bo'lib ko'rinadi
+va sezilmasdan sarflanadi. Bot sizdan bir marta so'raydi
+va ochmagan bo'lsangiz eslatib turadi.
+
+━━━━━━━━━━━━━━━━━━━━
+<b>7️⃣ SAVOL BERISH</b> 💬
 
 Shunchaki savol yozing:
 <code>bu oy eng ko'p nimaga pul ketdi?</code>
@@ -216,11 +257,19 @@ Jamlanmalarni dastur aniq hisoblaydi, AI faqat
 tushuntiradi — shuning uchun sonlar to'g'ri bo'ladi.
 
 ━━━━━━━━━━━━━━━━━━━━
-<b>7️⃣ EKSPORT</b> 📤
+<b>8️⃣ EKSPORT VA MAXFIYLIK</b> 📤
 
 /csv — barcha yozuvlar Excel'da ochiladigan fayl
 ko'rinishida. Chek yozuvlari «chek» ustuni bo'yicha
-guruhlangan bo'ladi."""
+guruhlangan bo'ladi.
+
+<b>Yozuvlaringizni sizdan boshqa hech kim ko'rmaydi.</b>
+Summalar, kategoriyalar va izohlar alohida shifrlangan
+bazada saqlanadi va uning kaliti admin panelda umuman
+yo'q — ya'ni bu va'da emas, texnik to'siq.
+
+/maxfiylik — to'liq siyosat
+/ochirish — hisobni va butun tarixni butunlay o'chirish"""
 
 
 # --------------------------------------------------------------------------- #
