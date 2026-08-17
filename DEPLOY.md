@@ -61,23 +61,50 @@ bazaga tegmaydi.
 | `journalctl -u tanga -f` | Loglarni jonli kuzatish |
 | `journalctl -u tanga --since "1 hour ago"` | Oxirgi 1 soatlik loglar |
 
+## Ikkita baza va ikkita kalit
+
+Ma'lumot **ikkita** faylda, **har xil** kalit bilan:
+
+| Fayl | Ichida | Kalit | Kim ochadi |
+|---|---|---|---|
+| `/opt/tanga/tanga.db` | foydalanuvchilar, obuna, to'lov, AI sarfi | `DB_ENCRYPTION_KEY` | bot **va** admin panel |
+| `/opt/tanga/tanga_shaxsiy.db` | moliyaviy yozuvlar, byudjetlar | `PRIVATE_DB_KEY` | **faqat bot** |
+
+Ajratishning sababi: admin panel asosiy bazani bot bilan baham
+ko'radi, chunki unga obuna va to'lov kerak. Yozuvlar o'sha faylda
+bo'lsa panel ularni o'qiy olardi. Endi ololmaydi — kaliti yo'q.
+
+**`PRIVATE_DB_KEY` ni `tanga-admin/.env` ga QO'YMANG.** Butun himoya
+shunga tayanadi. Qo'yilsa hech qanday xato chiqmaydi — himoya jimgina
+yo'qoladi.
+
+Bot `DB_ENCRYPTION_KEY` bor-u `PRIVATE_DB_KEY` yo'q bo'lsa **ishga
+tushmaydi**. Bu ataylab: bir marta zaxira yo'l asosiy kalitni olib,
+butun bazani noto'g'ri kalit bilan shifrlab qo'ygan.
+
+Yangi kalit:
+
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
 ## Bazani zaxiralash
 
-Baza — oddiy fayl: `/opt/tanga/tanga.db`.
+`tanga-backup` skripti **ikkala** bazani ham nusxalaydi, tekshiradi,
+AES-256 bilan shifrlaydi va egaga Telegramga yuboradi.
 
 ```bash
-# Qo'lda nusxa olish
-cp /opt/tanga/tanga.db /root/tanga-$(date +%F).db
-
-# Har kuni avtomatik (crontab -e)
-0 3 * * * cp /opt/tanga/tanga.db /root/backup/tanga-$(date +\%F).db
+tanga-backup            # nusxa olib, egaga yuboradi
+tanga-backup --local    # faqat serverda saqlaydi
 ```
 
-Kompyuterga tortib olish:
+Nusxalar `/var/backups/tanga/` da, 14 kun saqlanadi. Skriptning o'zi
+repoda: `deploy/tanga-backup`.
 
-```bash
-scp root@SERVER_IP:/opt/tanga/tanga.db ./
-```
+> **Kalitlarsiz zaxira nusxa foydasiz.** Nusxalar shifrlangan, ochish
+> uchun `/etc/tanga-backup.key` VA `.env` dagi ikkala baza kaliti
+> kerak. Server butunlay yo'qolsa faqat nusxaning o'zi yetmaydi —
+> uchalasini serverdan tashqarida ham saqlang.
 
 ## Xavfsizlik
 
