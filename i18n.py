@@ -722,9 +722,8 @@ T = {
         "uz": ("🏦 <b>Oy tugayapti — bir daqiqa gaplashamiz</b>\n\n"
                "Bu oy daromadingiz: <b>{income}</b>\n"
                "Jamg'armaga qo'yganingiz: <b>0</b>\n\n"
-               "«Vavilonlik eng boy odam» kitobining birinchi qoidasi "
-               "shunday: <b>topganingizning kamida 10 % i o'zingizga "
-               "qolishi kerak</b>. Sizda bu — <b>{ten}</b>.\n\n"
+               "Oddiy qoida: <b>topganingizning kamida 10 % i "
+               "o'zingizga qolishi kerak</b>. Sizda bu — <b>{ten}</b>.\n\n"
                "Ko'pchilik «oyning oxirida ortsa jamg'araman» deydi. "
                "Hech qachon ortmaydi — xarajat topilaveradi. Shuning "
                "uchun tartib teskari: <b>avval o'zingizga to'lang</b>, "
@@ -734,9 +733,8 @@ T = {
         "ru": ("🏦 <b>Месяц заканчивается — на минуту о важном</b>\n\n"
                "Ваш доход за месяц: <b>{income}</b>\n"
                "Отложено в накопления: <b>0</b>\n\n"
-               "Первое правило книги «Самый богатый человек в Вавилоне»: "
-               "<b>минимум 10 % заработанного должно оставаться вам</b>. "
-               "У вас это — <b>{ten}</b>.\n\n"
+               "Простое правило: <b>минимум 10 % заработанного должно "
+               "оставаться вам</b>. У вас это — <b>{ten}</b>.\n\n"
                "Многие говорят «отложу, если останется в конце месяца». "
                "Не остаётся никогда — расходы найдутся. Поэтому порядок "
                "обратный: <b>сначала заплатите себе</b>, живите на "
@@ -752,18 +750,17 @@ T = {
                "Umumiy jamg'armangiz: <b>{balance}</b>\n\n"
                "Boshladingiz — eng qiyini shu edi. 10 % ga yetish uchun "
                "yana <b>{gap}</b> kerak.\n\n"
-               "Kitobdagi qoida aynan 10 % dan boshlanadi: bu miqdor "
-               "turmushni sezilarli o'zgartirmaydi, lekin bir yilda "
-               "bir oylik daromadga aylanadi."),
+               "Nega aynan 10 %: bu miqdor turmushni sezilarli "
+               "o'zgartirmaydi, lekin bir yilda bir oylik daromadga "
+               "aylanadi."),
         "ru": ("🏦 <b>Итог накоплений за месяц</b>\n\n"
                "Доход: <b>{income}</b>\n"
                "Отложено: <b>{saved}</b> — это <b>{percent}%</b> дохода\n"
                "Всего накоплений: <b>{balance}</b>\n\n"
                "Вы начали — это было самым трудным. До 10 % не хватает "
                "<b>{gap}</b>.\n\n"
-               "Правило книги начинается именно с 10 %: эта доля почти "
-               "не меняет образ жизни, но за год превращается в месячный "
-               "доход."),
+               "Почему именно 10 %: эта доля почти не меняет образ "
+               "жизни, но за год превращается в месячный доход."),
     },
     # Daromadi yo'q oy
     "savings_month_no_income": {
@@ -919,14 +916,14 @@ T = {
         "uz": ("🎉 <b>Maqsadga yetdingiz!</b>\n\n"
                "Maqsad: <b>{amount}</b>{note}\n"
                "Jamg'armangiz: <b>{balance}</b>\n\n"
-               "Kitobda aytilganidek, eng qiyini birinchi qadam edi — "
-               "uni bosib o'tdingiz. Yangi maqsad qo'yasizmi?\n"
+               "Eng qiyini birinchi qadam edi — uni bosib o'tdingiz. "
+               "Yangi maqsad qo'yasizmi?\n"
                "<code>/maqsad 20 mln</code>"),
         "ru": ("🎉 <b>Цель достигнута!</b>\n\n"
                "Цель: <b>{amount}</b>{note}\n"
                "Накопления: <b>{balance}</b>\n\n"
-               "Как сказано в книге, труднее всего первый шаг — вы его "
-               "сделали. Поставим новую цель?\n"
+               "Труднее всего первый шаг — вы его сделали. Поставим "
+               "новую цель?\n"
                "<code>/maqsad 20 млн</code>"),
     },
     "goal_help": {
@@ -975,7 +972,7 @@ T = {
         "uz": ("📋 <b>Qarzdan chiqish rejasi</b>\n\n"
                "Ochiq qarzingiz: <b>{debt}</b>\n"
                "Oylik o'rtacha daromadingiz: <b>{income}</b>\n\n"
-               "Kitobdagi tuyachi Dabasir usuli — daromadni uchga bo'ling:\n"
+               "Daromadingizni uchga bo'ling:\n"
                "• <b>70 %</b> — yashashga\n"
                "• <b>20 %</b> — qarzni uzishga (<b>{monthly}</b>)\n"
                "• <b>10 %</b> — jamg'armaga (qarz bo'lsa ham!)\n\n"
@@ -986,8 +983,7 @@ T = {
         "ru": ("📋 <b>План выхода из долгов</b>\n\n"
                "Открытый долг: <b>{debt}</b>\n"
                "Средний месячный доход: <b>{income}</b>\n\n"
-               "Метод погонщика верблюдов Дабасира из книги — разделите "
-               "доход на три части:\n"
+               "Разделите доход на три части:\n"
                "• <b>70 %</b> — на жизнь\n"
                "• <b>20 %</b> — на погашение долга (<b>{monthly}</b>)\n"
                "• <b>10 %</b> — в накопления (даже с долгом!)\n\n"
@@ -998,12 +994,11 @@ T = {
     },
     "debt_plan_none": {
         "uz": ("✅ Ochiq qarzingiz yo'q.\n\n"
-               "Kitobning maslahati: qarzsiz odam daromadining 10 % ini "
-               "emas, imkoni boricha ko'proq qismini jamg'armaga "
-               "yo'naltirishi mumkin."),
+               "Qarzsiz odam daromadining 10 % ini emas, imkoni boricha "
+               "ko'proq qismini jamg'armaga yo'naltirishi mumkin."),
         "ru": ("✅ Открытых долгов нет.\n\n"
-               "Совет книги: без долгов можно откладывать не 10 %, "
-               "а столько, сколько позволяет доход."),
+               "Без долгов можно откладывать не 10 %, а столько, "
+               "сколько позволяет доход."),
     },
     "debt_plan_no_income": {
         "uz": ("📋 Ochiq qarzingiz: <b>{debt}</b>\n\n"
@@ -1015,9 +1010,9 @@ T = {
                "когда он появится — я рассчитаю срок по правилу 70/20/10."),
     },
 
-    # «Bobil bahosi» va yillik jamg'arma matnlari bu yerda EMAS:
-    # ular hisobot matnining bir qismi va reports.py da turadi —
-    # o'sha faylning qolgan hamma matni ham o'sha yerda.
+    # Oylik baho va yillik jamg'arma matnlari bu yerda EMAS: ular
+    # hisobot matnining bir qismi va reports.py da turadi — o'sha
+    # faylning qolgan hamma matni ham o'sha yerda.
 
     # ---- Ketma-ket kunlar (streak) ----
     "streak_grew": {

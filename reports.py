@@ -181,18 +181,21 @@ def summary_text(user_id: int, period: str) -> str:
     # Hisobot matni bu faylda o'zbekcha yozilgan (butun fayl shunday),
     # shuning uchun quyidagi bo'limlar ham shu yerda turadi.
     if period in ("oy", "otgan_oy"):
-        text += _babylon_score(t)
+        text += _monthly_score(t)
     elif period == "yil":
         text += _yearly_savings(user_id, start, end)
     return text
 
 
-def _babylon_score(t: dict) -> str:
-    """Oylik uch savol — «Vavilonlik eng boy odam» qoidalari bo'yicha.
+def _monthly_score(t: dict) -> str:
+    """Oylik uch savol: 10 % jamg'ardingmi, topganingdan kam
+    sarfladingmi, qarzing ko'paymadimi.
 
-    Uchtasi ham kitobning asosiy qoidalari: 10 % jamg'ardingmi,
-    topganingdan kam sarfladingmi, qarzing ko'paymadimi. Baho ATAYLAB
-    oddiy: uchta savol, uchta belgi. Murakkab ball tizimi o'qilmaydi.
+    Baho ATAYLAB oddiy: uchta savol, uchta belgi. Murakkab ball tizimi
+    o'qilmaydi.
+
+    Foydalanuvchiga ko'rinadigan matnda manba (kitob) tilga olinmaydi —
+    maslahat o'z-o'zidan tushunarli bo'lishi kerak.
     """
     kirim = t[config.KIND_KIRIM]
     chiqim = t[config.KIND_CHIQIM]
@@ -214,7 +217,7 @@ def _babylon_score(t: dict) -> str:
     score = sum(1 for ok, _, _ in rows if ok)
     body = "\n".join(f"{'✅' if ok else '❌'} {yes if ok else no}"
                      for ok, yes, no in rows)
-    return f"\n\n📜 <b>Bobil bahosi: {score}/3</b>\n{body}"
+    return f"\n\n📜 <b>Oylik baho: {score}/3</b>\n{body}"
 
 
 def _yearly_savings(user_id: int, start: date, end: date) -> str:

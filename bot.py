@@ -207,7 +207,7 @@ Tugmalar yoki buyruqlar orqali:
 Har birida: kirim, chiqim, farq, kategoriyalar
 foizli diagramma bilan va kunlik o'rtacha.
 
-Oylik hisobot oxirida <b>«Bobil bahosi»</b> ham bor — uchta
+Oylik hisobot oxirida <b>oylik baho</b> ham bor — uchta
 savol: 10% jamg'arildimi, daromaddan kam sarfladingizmi,
 qarz ko'paymadimi.
 
@@ -218,8 +218,7 @@ qarz ko'paymadimi.
 ━━━━━━━━━━━━━━━━━━━━
 <b>6️⃣ JAMG'ARMA VA BOYLIK</b> 🏦
 
-Bu bo'lim «Vavilonlik eng boy odam» (G. Clason) kitobidagi
-qoidalarga asoslangan. Kitobning mag'zi bitta jumlada:
+Bu bo'lim bitta oddiy qoidaga tayanadi:
 <b>topganingizning kamida 10% i o'zingizga qolishi kerak</b>.
 
 /jamgarma — qoldiq, alohida karta holati va maslahat
