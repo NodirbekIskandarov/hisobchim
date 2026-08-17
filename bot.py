@@ -2999,6 +2999,21 @@ def main() -> None:
         .build()
     )
 
+    register_handlers(app)
+
+    log.info("Bot ishga tushdi. To'xtatish: Ctrl+C")
+    app.run_polling(drop_pending_updates=True)
+
+
+def register_handlers(app) -> None:
+    """Barcha buyruq va tugma ishlovchilarini ro'yxatga oladi.
+
+    main() dan ATAYLAB ajratilgan: shu ko'rinishda uni sinovdan
+    o'tkazish mumkin. Sababi amaliy — Telegram buyruq nomi faqat ASCII
+    harf, raqam va pastki chiziqdan iborat bo'la oladi va noto'g'ri nom
+    faqat SHU bosqichda ValueError beradi. Bir marta shunday xato
+    jonli serverga chiqib, bot umuman ishga tushmay qolgan.
+    """
     app.add_handler(CommandHandler(["start", "yordam", "help"], cmd_start))
     app.add_handler(CommandHandler(["qollanma", "guide"], cmd_guide))
     app.add_handler(CommandHandler(["obuna", "tarif"], cmd_plans))
@@ -3011,7 +3026,10 @@ def main() -> None:
     app.add_handler(CommandHandler(["ochirish", "hisobniochir"], cmd_erase))
     app.add_handler(CommandHandler(["taklif", "referal"], cmd_referral))
     app.add_handler(CommandHandler(["byudjet", "budjet"], cmd_budget))
-    app.add_handler(CommandHandler(["jamgarma", "jamgʻarma", "omonat"], cmd_savings))
+    # Diqqat: Telegram buyruq nomi faqat ASCII harf, raqam va pastki
+    # chiziqdan iborat bo'la oladi. «jamgʻarma» kabi apostrofli variant
+    # ValueError beradi va bot umuman ishga tushmaydi.
+    app.add_handler(CommandHandler(["jamgarma", "omonat"], cmd_savings))
     app.add_handler(CommandHandler(["maqsad", "goal"], cmd_goal))
     app.add_handler(CommandHandler(["holatim", "sofqiymat"], cmd_net_worth))
     app.add_handler(CommandHandler(["reja", "qarzreja"], cmd_debt_plan))
@@ -3036,9 +3054,6 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
     schedule_jobs(app)
-
-    log.info("Bot ishga tushdi. To'xtatish: Ctrl+C")
-    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
