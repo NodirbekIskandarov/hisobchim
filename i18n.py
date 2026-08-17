@@ -705,6 +705,179 @@ T = {
                "Вопросы: {contact}"),
     },
 
+    # ---- Shaxsiy jamg'arma ----
+    #
+    # Matnlar «Vavilonlik eng boy odam» (G. Clason, 1926) g'oyalariga
+    # tayanadi, lekin kitobni maqtash uchun emas: har bir xabar odamning
+    # O'Z raqamini ko'rsatadi. Mavhum nasihat o'qilmaydi.
+
+    # Oy oxiri — hech narsa jamg'armaganlarga
+    "savings_month_none": {
+        "uz": ("🏦 <b>Oy tugayapti — bir daqiqa gaplashamiz</b>\n\n"
+               "Bu oy daromadingiz: <b>{income}</b>\n"
+               "Jamg'armaga qo'yganingiz: <b>0</b>\n\n"
+               "«Vavilonlik eng boy odam» kitobining birinchi qoidasi "
+               "shunday: <b>topganingizning kamida 10 % i o'zingizga "
+               "qolishi kerak</b>. Sizda bu — <b>{ten}</b>.\n\n"
+               "Ko'pchilik «oyning oxirida ortsa jamg'araman» deydi. "
+               "Hech qachon ortmaydi — xarajat topilaveradi. Shuning "
+               "uchun tartib teskari: <b>avval o'zingizga to'lang</b>, "
+               "qolganiga yashang.\n\n"
+               "O'tkazgan bo'lsangiz shunchaki yozing:\n"
+               "<code>jamg'armaga {ten_plain} o'tkazdim</code>"),
+        "ru": ("🏦 <b>Месяц заканчивается — на минуту о важном</b>\n\n"
+               "Ваш доход за месяц: <b>{income}</b>\n"
+               "Отложено в накопления: <b>0</b>\n\n"
+               "Первое правило книги «Самый богатый человек в Вавилоне»: "
+               "<b>минимум 10 % заработанного должно оставаться вам</b>. "
+               "У вас это — <b>{ten}</b>.\n\n"
+               "Многие говорят «отложу, если останется в конце месяца». "
+               "Не остаётся никогда — расходы найдутся. Поэтому порядок "
+               "обратный: <b>сначала заплатите себе</b>, живите на "
+               "остальное.\n\n"
+               "Если уже перевели — просто напишите:\n"
+               "<code>в накопления {ten_plain}</code>"),
+    },
+    # Oy oxiri — jamg'argan, lekin 10 % dan kam
+    "savings_month_low": {
+        "uz": ("🏦 <b>Oylik jamg'arma xulosasi</b>\n\n"
+               "Daromad: <b>{income}</b>\n"
+               "Jamg'arma: <b>{saved}</b> — daromadingizning <b>{percent}%</b> i\n"
+               "Umumiy jamg'armangiz: <b>{balance}</b>\n\n"
+               "Boshladingiz — eng qiyini shu edi. 10 % ga yetish uchun "
+               "yana <b>{gap}</b> kerak.\n\n"
+               "Kitobdagi qoida aynan 10 % dan boshlanadi: bu miqdor "
+               "turmushni sezilarli o'zgartirmaydi, lekin bir yilda "
+               "bir oylik daromadga aylanadi."),
+        "ru": ("🏦 <b>Итог накоплений за месяц</b>\n\n"
+               "Доход: <b>{income}</b>\n"
+               "Отложено: <b>{saved}</b> — это <b>{percent}%</b> дохода\n"
+               "Всего накоплений: <b>{balance}</b>\n\n"
+               "Вы начали — это было самым трудным. До 10 % не хватает "
+               "<b>{gap}</b>.\n\n"
+               "Правило книги начинается именно с 10 %: эта доля почти "
+               "не меняет образ жизни, но за год превращается в месячный "
+               "доход."),
+    },
+    # Oy oxiri — 10 % va undan ko'p
+    "savings_month_good": {
+        "uz": ("🏦 <b>Oylik jamg'arma xulosasi</b>\n\n"
+               "Daromad: <b>{income}</b>\n"
+               "Jamg'arma: <b>{saved}</b> — daromadingizning <b>{percent}%</b> i ✅\n"
+               "Umumiy jamg'armangiz: <b>{balance}</b>\n\n"
+               "Qoidani bajardingiz. Kitobda buni «hamyonni to'ldirish» "
+               "deyiladi va u boylikning birinchi bosqichi.\n\n"
+               "{extra}"),
+        "ru": ("🏦 <b>Итог накоплений за месяц</b>\n\n"
+               "Доход: <b>{income}</b>\n"
+               "Отложено: <b>{saved}</b> — это <b>{percent}%</b> дохода ✅\n"
+               "Всего накоплений: <b>{balance}</b>\n\n"
+               "Правило выполнено. В книге это называется «наполнение "
+               "кошелька» — первая ступень богатства.\n\n"
+               "{extra}"),
+    },
+    # Daromadi yo'q oy
+    "savings_month_no_income": {
+        "uz": ("🏦 <b>Oy tugayapti</b>\n\n"
+               "Bu oy daromad yozmagansiz, shuning uchun 10 % ni "
+               "hisoblay olmadim.\n\n"
+               "Umumiy jamg'armangiz: <b>{balance}</b>\n\n"
+               "Daromad kelganda uni yozib qo'ying — men 10 % ni o'zim "
+               "hisoblab, eslatib turaman."),
+        "ru": ("🏦 <b>Месяц заканчивается</b>\n\n"
+               "В этом месяце вы не записывали доход, поэтому 10 % "
+               "посчитать не удалось.\n\n"
+               "Всего накоплений: <b>{balance}</b>\n\n"
+               "Запишите доход, когда он появится — я сам посчитаю 10 % "
+               "и напомню."),
+    },
+
+    # ---- Alohida karta ----
+    "savings_card_ask": {
+        "uz": ("💳 <b>Bitta savol</b>\n\n"
+               "Jamg'armangiz uchun <b>alohida bank kartangiz</b> bormi?\n\n"
+               "Nega so'rayapman: bitta hisobda turgan pul «bor» bo'lib "
+               "ko'rinadi va sezilmasdan sarflanadi. Alohida kartadagi "
+               "pulga qo'l urish uchun ongli harakat kerak — shuning "
+               "o'zi uni saqlab qoladi.\n\n"
+               "Kitobda bu «pulni yo'qotishdan asrash» deyiladi."),
+        "ru": ("💳 <b>Один вопрос</b>\n\n"
+               "Есть ли у вас <b>отдельная банковская карта</b> для "
+               "накоплений?\n\n"
+               "Зачем спрашиваю: деньги на одном счёте выглядят как "
+               "«есть» и тратятся незаметно. Чтобы тронуть деньги на "
+               "отдельной карте, нужно осознанное действие — это само по "
+               "себе их сохраняет.\n\n"
+               "В книге это называется «защити свои сокровища»."),
+    },
+    "savings_card_yes": {"uz": "✅ Ha, alohida kartam bor",
+                         "ru": "✅ Да, есть отдельная карта"},
+    "savings_card_no": {"uz": "❌ Yo'q, hali ochmaganman",
+                        "ru": "❌ Нет, ещё не открыл"},
+    "savings_card_done": {
+        "uz": ("👍 Zo'r. Endi jamg'armani <b>o'sha kartaga</b> o'tkazing va "
+               "menga yozib qo'ying:\n\n"
+               "<code>jamg'armaga 500 ming o'tkazdim</code>\n\n"
+               "Men qoldiqni hisoblab boraman."),
+        "ru": ("👍 Отлично. Теперь переводите накопления <b>на эту карту</b> "
+               "и пишите мне:\n\n"
+               "<code>в накопления 500 тысяч</code>\n\n"
+               "Я буду считать остаток."),
+    },
+    "savings_card_later": {
+        "uz": ("Tushunarli. Shoshilinch ish emas, lekin <b>eng arzon "
+               "moliyaviy qadam</b> — bepul va bir marta qilinadi.\n\n"
+               "Har qanday bankda ikkinchi karta ochsangiz bo'ladi. "
+               "Muhimi: <b>kartasi qo'lingizda yurmasin</b> va unga "
+               "to'lov ilovalari ulanmasin.\n\n"
+               "Ochganingizda menga ayting — <code>/jamgarma</code>"),
+        "ru": ("Понятно. Дело не срочное, но это <b>самый дешёвый "
+               "финансовый шаг</b> — бесплатно и делается один раз.\n\n"
+               "Подойдёт вторая карта в любом банке. Главное: "
+               "<b>не носите её с собой</b> и не привязывайте к платёжным "
+               "приложениям.\n\n"
+               "Когда откроете — скажите мне: <code>/jamgarma</code>"),
+    },
+    "savings_card_nudge": {
+        "uz": ("💳 Eslatma: jamg'armangiz uchun hali <b>alohida karta</b> "
+               "ochmagansiz.\n\n"
+               "Hozirgi jamg'armangiz — <b>{balance}</b>. U kundalik "
+               "kartada tursa, sarflanib ketishi ehtimoli katta.\n\n"
+               "Ochdingizmi? <code>/jamgarma</code>"),
+        "ru": ("💳 Напоминание: для накоплений вы ещё не открыли "
+               "<b>отдельную карту</b>.\n\n"
+               "Сейчас накоплено <b>{balance}</b>. Если эти деньги лежат "
+               "на повседневной карте, шанс их потратить велик.\n\n"
+               "Открыли? <code>/jamgarma</code>"),
+    },
+
+    # ---- /jamgarma buyrug'i ----
+    "savings_status": {
+        "uz": ("🏦 <b>Shaxsiy jamg'armangiz</b>\n\n"
+               "Joriy qoldiq: <b>{balance}</b>\n"
+               "Bu oy qo'shildi: <b>{month}</b>\n"
+               "Alohida karta: {card}\n\n"
+               "{advice}\n\n"
+               "Qo'shish: <code>jamg'armaga 200 ming o'tkazdim</code>\n"
+               "Yechish: <code>jamg'armadan 50 ming oldim</code>"),
+        "ru": ("🏦 <b>Ваши накопления</b>\n\n"
+               "Текущий остаток: <b>{balance}</b>\n"
+               "Добавлено за месяц: <b>{month}</b>\n"
+               "Отдельная карта: {card}\n\n"
+               "{advice}\n\n"
+               "Пополнить: <code>в накопления 200 тысяч</code>\n"
+               "Снять: <code>из накоплений 50 тысяч</code>"),
+    },
+    "savings_card_state_yes": {"uz": "✅ bor", "ru": "✅ есть"},
+    "savings_card_state_no": {"uz": "❌ yo'q", "ru": "❌ нет"},
+    # Zaxira fond: jamg'arma necha oylik chiqimga yetadi
+    "savings_cushion": {
+        "uz": ("🛡 Bu jamg'arma o'rtacha oylik chiqimingizga "
+               "(<b>{monthly}</b>) taxminan <b>{months}</b> yetadi."),
+        "ru": ("🛡 Этих накоплений хватит примерно на <b>{months}</b> "
+               "при среднем месячном расходе <b>{monthly}</b>."),
+    },
+
     # ---- Ketma-ket kunlar (streak) ----
     "streak_grew": {
         "uz": "🔥 Ketma-ket {n} kun yozyapsiz!",

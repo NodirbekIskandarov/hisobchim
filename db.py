@@ -57,7 +57,36 @@ CREATE TABLE IF NOT EXISTS shaxsiy.budgets (
     notified  TEXT    NOT NULL DEFAULT '',
     PRIMARY KEY (user_id, category, currency)
 );
+
+-- Jamg'arma odati. `card_state` — odamda jamg'arma uchun ALOHIDA bank
+-- kartasi bormi:
+--   soralmagan — hali so'ralmagan
+--   yoq        — yo'q deb javob bergan (vaqti-vaqti bilan eslatiladi)
+--   bor        — ochgan
+--
+-- Nima uchun alohida karta muhim: bitta hisobda turgan pul "bor" bo'lib
+-- ko'rinadi va oxirigacha sarflanadi. Kitobning 4-qonuni ("pulni
+-- yo'qotishdan asra") amalda aynan shu — jamg'armani qo'l yetmaydigan
+-- joyga qo'yish.
+--
+-- Bu jadval ATAYLAB shaxsiy bazada: odamning bank tuzilishi ham uning
+-- moliyasi, admin panel buni bilishi shart emas.
+CREATE TABLE IF NOT EXISTS shaxsiy.savings_profile (
+    user_id       INTEGER PRIMARY KEY,
+    card_state    TEXT NOT NULL DEFAULT 'soralmagan',
+    asked_at      TEXT,
+    answered_at   TEXT,
+    -- Oxirgi eslatma: bir odamga tez-tez aytilmasin.
+    nudged_at     TEXT,
+    -- Oy oxiridagi eslatma qaysi oy uchun yuborilgani: "YYYY-MM".
+    -- Bir oyda ikki marta yuborilib qolmasin.
+    reminded_month TEXT NOT NULL DEFAULT ''
+);
 """
+
+CARD_SORALMAGAN = "soralmagan"
+CARD_YOQ = "yoq"
+CARD_BOR = "bor"
 
 SCHEMA = """
 -- Foydalanuvchilar: kirish huquqi, bepul sinov va obuna muddati.
@@ -1178,6 +1207,134 @@ def users_for_winback(days: int = 7) -> list[dict]:
     return out
 
 
+# --------------------------------------------------------------------------- #
+# Shaxsiy jamg'arma
+# --------------------------------------------------------------------------- #
+
+def savings_balance(user_id: int) -> float:
+    """Jamg'armadagi joriy qoldiq: qo'yilgani minus yechilgani.
+
+    Asosiy valyutada (`amount_base`) — dollarda qo'yib so'mda yechilgan
+    bo'lsa ham bitta sonda ko'rinsin.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(CASE WHEN kind = ? THEN COALESCE(amount_base, amount)
+                                        ELSE -COALESCE(amount_base, amount) END), 0)
+               FROM transactions WHERE user_id = ? AND kind IN (?, ?)""",
+            (config.KIND_JAMGARMA, user_id,
+             config.KIND_JAMGARMA, config.KIND_JAMGARMA_YECHDIM)).fetchone()
+    return round(float(row[0] or 0), 2)
+
+
+def savings_in_period(user_id: int, start: date, end: date) -> float:
+    """Shu oraliqda jamg'armaga QO'SHILGAN sof summa."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(CASE WHEN kind = ? THEN COALESCE(amount_base, amount)
+                                        ELSE -COALESCE(amount_base, amount) END), 0)
+               FROM transactions
+               WHERE user_id = ? AND kind IN (?, ?)
+                 AND occurred_on BETWEEN ? AND ?""",
+            (config.KIND_JAMGARMA, user_id,
+             config.KIND_JAMGARMA, config.KIND_JAMGARMA_YECHDIM,
+             start.isoformat(), end.isoformat())).fetchone()
+    return round(float(row[0] or 0), 2)
+
+
+def income_in_period(user_id: int, start: date, end: date) -> float:
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(COALESCE(amount_base, amount)), 0)
+               FROM transactions
+               WHERE user_id = ? AND kind = ? AND occurred_on BETWEEN ? AND ?""",
+            (user_id, config.KIND_KIRIM,
+             start.isoformat(), end.isoformat())).fetchone()
+    return round(float(row[0] or 0), 2)
+
+
+def savings_profile(user_id: int) -> dict:
+    """Jamg'arma odati holati. Yozuv bo'lmasa bo'sh holat qaytadi."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM savings_profile WHERE user_id = ?", (user_id,)).fetchone()
+    if row:
+        return dict(row)
+    return {"user_id": user_id, "card_state": CARD_SORALMAGAN, "asked_at": None,
+            "answered_at": None, "nudged_at": None, "reminded_month": ""}
+
+
+def _upsert_profile(conn, user_id: int, **fields) -> None:
+    cols = ", ".join(fields)
+    marks = ", ".join("?" for _ in fields)
+    sets = ", ".join(f"{k} = excluded.{k}" for k in fields)
+    conn.execute(
+        f"INSERT INTO savings_profile (user_id, {cols}) VALUES (?, {marks}) "
+        f"ON CONFLICT(user_id) DO UPDATE SET {sets}",
+        (user_id, *fields.values()))
+
+
+def set_savings_card(user_id: int, state: str) -> None:
+    """Alohida karta bor/yo'q javobini yozadi."""
+    if state not in (CARD_SORALMAGAN, CARD_YOQ, CARD_BOR):
+        raise ValueError(state)
+    now = datetime.now(config.TZ).isoformat(timespec="seconds")
+    with get_conn() as conn:
+        _upsert_profile(conn, user_id, card_state=state, answered_at=now,
+                        nudged_at=now)
+
+
+def mark_card_asked(user_id: int) -> None:
+    now = datetime.now(config.TZ).isoformat(timespec="seconds")
+    with get_conn() as conn:
+        _upsert_profile(conn, user_id, asked_at=now, nudged_at=now)
+
+
+def mark_month_reminded(user_id: int, month: str) -> None:
+    with get_conn() as conn:
+        _upsert_profile(conn, user_id, reminded_month=month)
+
+
+def users_for_savings_reminder() -> list[dict]:
+    """Oy oxiridagi jamg'arma eslatmasi kimlarga ketadi.
+
+    Kirish huquqi borlar olinadi. Har biriga o'sha oydagi daromadi,
+    jamg'armasi va karta holati qo'shiladi — xabar shaxsiy bo'lsin.
+    Umumiy «jamg'aring» degan matn jamg'arayotgan odam uchun shovqin,
+    jamg'armayotgan odam uchun esa juda mavhum.
+    """
+    now = datetime.now(config.TZ)
+    first = now.date().replace(day=1)
+    today_ = now.date()
+    month = now.strftime("%Y-%m")
+
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall()
+        profiles = {r["user_id"]: dict(r) for r in conn.execute(
+            "SELECT * FROM savings_profile").fetchall()}
+
+    out = []
+    for r in rows:
+        uid = r["user_id"]
+        sub = _parse_dt(r["subscribed_until"])
+        trial = _parse_dt(r["trial_ends_at"])
+        if uid not in config.OWNER_IDS and not (
+                (sub and sub > now) or (trial and trial > now)):
+            continue
+        prof = profiles.get(uid) or {}
+        if (prof.get("reminded_month") or "") == month:
+            continue                       # shu oy allaqachon yuborilgan
+        out.append({
+            "user_id": uid,
+            "lang": r["lang"] or "uz",
+            "card_state": prof.get("card_state") or CARD_SORALMAGAN,
+            "income": income_in_period(uid, first, today_),
+            "saved": savings_in_period(uid, first, today_),
+            "balance": savings_balance(uid),
+        })
+    return out
+
+
 def users_for_digest() -> list[dict]:
     """Haftalik xulosa yuboriladiganlar: kirish huquqi bor, bloklanmaganlar.
 
@@ -1347,6 +1504,7 @@ def erase_user(user_id: int) -> dict:
         usage = conn.execute("DELETE FROM usage_log WHERE user_id = ?",
                              (user_id,)).rowcount
         conn.execute("DELETE FROM budgets WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
         # Taklif qilganlar zanjiri uzilmasin — havola bo'sh qoladi.
         conn.execute("UPDATE users SET referred_by = NULL WHERE referred_by = ?",
@@ -1372,6 +1530,7 @@ def drain_erase_queue() -> int:
         for uid in ids:
             conn.execute("DELETE FROM transactions WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM budgets WHERE user_id = ?", (uid,))
+            conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (uid,))
         # Navbat qatorining o'zi ham qoldirilmaydi: unda foydalanuvchi
         # id si turadi, ya'ni u ham iz.

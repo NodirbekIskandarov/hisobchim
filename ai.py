@@ -96,7 +96,10 @@ RECORD_TOOL = {
                             "description": (
                                 "chiqim — pul sarflandi; kirim — pul kelib tushdi; "
                                 "qarz_berdim — men birovga qarz berdim; "
-                                "qarz_oldim — men birovdan qarz oldim."
+                                "qarz_oldim — men birovdan qarz oldim; "
+                                "jamgarma — pul shaxsiy jamg'armaga qo'yildi "
+                                "(sarflanmadi, o'zida qoldi); "
+                                "jamgarma_yechdim — jamg'armadan pul olindi."
                             ),
                         },
                         "summa": {
@@ -223,6 +226,18 @@ def _parse_system_prompt(today: date) -> str:
         "\"Akamdan 1 mln qarz oldim\" => qarz_oldim, shaxs=\"akam\". Qarz turi "
         "faqat \"qarz\" so'zi yoki uning aniq ma'nosi (masalan \"nasiya\") "
         "jumlada bo'lsa qo'llanadi — aks holda oddiy kirim/chiqim.\n"
+        "- JAMG'ARMA. \"jamg'arma\", \"jamgarma\", \"omonat\", \"zaxira\", "
+        "\"copilka\", \"nakopleniye\" so'zlari pul YO'NALISHINI ko'rsatadi:\n"
+        "  * \"jamg'armaga 100 ming o'tkazdim\", \"shaxsiy jamg'armaga 500 ming "
+        "qo'ydim\", \"omonatga 1 mln soldim\", \"zaxiraga 200 ming ajratdim\" "
+        "=> jamgarma.\n"
+        "  * \"jamg'armadan 300 ming oldim\", \"omonatdan yechdim\" "
+        "=> jamgarma_yechdim.\n"
+        "  Bu chiqim EMAS: pul sarflanmadi, odamning o'zida qoldi. Shuning "
+        "uchun \"jamg'armaga o'tkazdim\" ni hech qachon chiqim deb belgilama.\n"
+        "  Diqqat: \"jamg'armaga o'tkazish uchun telefon sotdim\" kabi jumlada "
+        "amaliyot SOTUV (kirim) — jamg'arma so'zi shunchaki maqsadni "
+        "bildiryapti. Pul qayerga BORGANIGA qara.\n"
         "- \"kecha\", \"ertalab\", \"1-avgustda\" kabi vaqt ko'rsatkichlarini sanaga aylantir. "
         "Vaqt aytilmasa bugungi sana.\n"
         "- Kategoriyani faqat ro'yxatdagilardan tanla. Mahsulot/xizmatning "

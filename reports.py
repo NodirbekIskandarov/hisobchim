@@ -162,6 +162,17 @@ def summary_text(user_id: int, period: str) -> str:
         if qarz_oldim:
             lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim)}")
 
+    # Jamg'arma ATAYLAB "Farq" dan tashqarida turadi: u sarflangan pul
+    # emas, shuning uchun chiqimga qo'shilmaydi. Lekin daromadga nisbatan
+    # ulushi ko'rsatiladi — kitobdagi 10 % qoidasi shu joyda ko'rinadi.
+    jamgardim = t[config.KIND_JAMGARMA] - t[config.KIND_JAMGARMA_YECHDIM]
+    if jamgardim:
+        lines.append("")
+        share = f" — daromadning {jamgardim / kirim * 100:.0f}%i" if kirim > 0 else ""
+        lines.append(f"🏦 Jamg'arma: {fmt_money(jamgardim)}{share}")
+        if kirim > 0 and jamgardim >= kirim * config.SAVINGS_RATE:
+            lines.append("<i>✅ 10% qoidasi bajarildi</i>")
+
     if chiqim and days >= 2:
         lines.append("")
         lines.append(f"<i>Kuniga o'rtacha: {fmt_money(chiqim / days)}</i>")

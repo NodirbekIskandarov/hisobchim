@@ -386,14 +386,28 @@ KIND_KIRIM = "kirim"
 KIND_QARZ_BERDIM = "qarz_berdim"   # men birovga qarz berdim
 KIND_QARZ_OLDIM = "qarz_oldim"     # men birovdan qarz oldim
 
-KINDS = [KIND_CHIQIM, KIND_KIRIM, KIND_QARZ_BERDIM, KIND_QARZ_OLDIM]
+# Shaxsiy jamg'arma. ATAYLAB chiqim EMAS: jamg'armaga qo'yilgan pul
+# sarflanmagan, u hamon odamning o'ziniki — faqat boshqa cho'ntakka
+# o'tdi. Chiqim deb yozilsa "bu oy qancha sarfladim?" degan savolga
+# noto'g'ri javob chiqadi va odam ko'p sarflagandek ko'rinadi.
+#
+# Yechish alohida tur: jamg'arma faqat o'sib boradigan bo'lsa, birinchi
+# marta pul olingan kuniyoq ko'rsatkich yolg'onga aylanadi.
+KIND_JAMGARMA = "jamgarma"                  # jamg'armaga qo'ydim
+KIND_JAMGARMA_YECHDIM = "jamgarma_yechdim"  # jamg'armadan oldim
+
+KINDS = [KIND_CHIQIM, KIND_KIRIM, KIND_QARZ_BERDIM, KIND_QARZ_OLDIM,
+         KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM]
 DEBT_KINDS = [KIND_QARZ_BERDIM, KIND_QARZ_OLDIM]
+SAVINGS_KINDS = [KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM]
 
 KIND_LABELS = {
     KIND_CHIQIM: "Chiqim",
     KIND_KIRIM: "Kirim",
     KIND_QARZ_BERDIM: "Qarz berdim",
     KIND_QARZ_OLDIM: "Qarz oldim",
+    KIND_JAMGARMA: "Jamg'armaga",
+    KIND_JAMGARMA_YECHDIM: "Jamg'armadan yechdim",
 }
 
 KIND_ICONS = {
@@ -401,7 +415,13 @@ KIND_ICONS = {
     KIND_KIRIM: "🔺",
     KIND_QARZ_BERDIM: "📤",
     KIND_QARZ_OLDIM: "📥",
+    KIND_JAMGARMA: "🏦",
+    KIND_JAMGARMA_YECHDIM: "🏧",
 }
+
+# «Avval o'zingga to'la» — daromadning kamida shuncha qismi jamg'armaga.
+# Manba: George S. Clason, "Vavilonlik eng boy odam", 1-davo.
+SAVINGS_RATE = 0.10
 
 EXPENSE_CATEGORIES = [
     "oziq-ovqat",
@@ -431,8 +451,10 @@ INCOME_CATEGORIES = [
 ]
 
 DEBT_CATEGORIES = ["qarz"]
+SAVINGS_CATEGORIES = ["jamg'arma"]
 
-ALL_CATEGORIES = EXPENSE_CATEGORIES + INCOME_CATEGORIES + DEBT_CATEGORIES
+ALL_CATEGORIES = (EXPENSE_CATEGORIES + INCOME_CATEGORIES + DEBT_CATEGORIES
+                  + SAVINGS_CATEGORIES)
 
 CATEGORY_ICONS = {
     "oziq-ovqat": "🥦",
@@ -457,6 +479,7 @@ CATEGORY_ICONS = {
     "investitsiya": "🪙",
     "boshqa kirim": "📥",
     "qarz": "🤝",
+    "jamg'arma": "🏦",
 }
 
 
@@ -465,6 +488,8 @@ def fallback_category(kind: str) -> str:
         return "boshqa kirim"
     if kind in DEBT_KINDS:
         return "qarz"
+    if kind in SAVINGS_KINDS:
+        return "jamg'arma"
     return "boshqa chiqim"
 
 
@@ -473,6 +498,8 @@ def normalize_category(kind: str, category: str | None) -> str:
     cat = (category or "").strip().lower()
     if kind in DEBT_KINDS:
         return "qarz"
+    if kind in SAVINGS_KINDS:
+        return "jamg'arma"
     if kind == KIND_KIRIM:
         return cat if cat in INCOME_CATEGORIES else "boshqa kirim"
     return cat if cat in EXPENSE_CATEGORIES else "boshqa chiqim"
@@ -483,6 +510,8 @@ def categories_for(kind: str) -> list[str]:
         return INCOME_CATEGORIES
     if kind in DEBT_KINDS:
         return DEBT_CATEGORIES
+    if kind in SAVINGS_KINDS:
+        return SAVINGS_CATEGORIES
     return EXPENSE_CATEGORIES
 
 

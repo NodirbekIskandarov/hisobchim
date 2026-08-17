@@ -12,7 +12,7 @@ import io
 import logging
 import time
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import wraps
 from urllib.parse import quote
 
@@ -1433,6 +1433,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data.startswith("jam:"):
+        await on_savings_callback(update, context)
+        return
+
     # --- Kategoriya tugmalari ---
 
     if data.startswith("c:"):
@@ -2086,6 +2090,94 @@ async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
+# --------------------------------------------------------------------------- #
+# Shaxsiy jamg'arma
+# --------------------------------------------------------------------------- #
+
+def _card_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(i18n.t(lang, "savings_card_yes"), callback_data="jam:bor")],
+        [InlineKeyboardButton(i18n.t(lang, "savings_card_no"), callback_data="jam:yoq")],
+    ])
+
+
+def _cushion_line(user_id: int, lang: str, balance: float) -> str:
+    """«Bu jamg'arma necha oyga yetadi» — kitobning 6-davosi.
+
+    O'rtacha oylik chiqim oxirgi 90 kundan olinadi. Chiqimi yo'q odamda
+    hisoblab bo'lmaydi — bunda qator umuman ko'rsatilmaydi, taxminiy
+    raqam o'ylab topilmaydi.
+    """
+    if balance <= 0:
+        return ""
+    end = datetime.now(config.TZ).date()
+    start = end - timedelta(days=89)
+    spent = db.totals_unified(user_id, start, end)["totals"][config.KIND_CHIQIM]
+    monthly = spent / 3
+    if monthly < 1:
+        return ""
+    months = balance / monthly
+    if months < 1:
+        text = f"{months * 30:.0f} kun" if lang == "uz" else f"{months * 30:.0f} дней"
+    else:
+        text = f"{months:.1f} oy" if lang == "uz" else f"{months:.1f} мес."
+    return i18n.t(lang, "savings_cushion",
+                  monthly=reports.fmt_money(monthly, "som"), months=text)
+
+
+async def cmd_savings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/jamgarma — qoldiq, alohida karta holati va maslahat."""
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    msg = update.effective_message
+
+    prof = db.savings_profile(user_id)
+    # Hali so'ralmagan bo'lsa — avval kartani so'raymiz. Bu bir marta
+    # bo'ladi va javob eslab qolinadi.
+    if prof["card_state"] == db.CARD_SORALMAGAN:
+        db.mark_card_asked(user_id)
+        await msg.reply_text(i18n.t(lang, "savings_card_ask"),
+                             parse_mode=ParseMode.HTML,
+                             reply_markup=_card_keyboard(lang))
+        return
+
+    now = datetime.now(config.TZ).date()
+    balance = db.savings_balance(user_id)
+    month = db.savings_in_period(user_id, now.replace(day=1), now)
+    has_card = prof["card_state"] == db.CARD_BOR
+
+    advice = _cushion_line(user_id, lang, balance)
+    if not has_card:
+        # Kartasi yo'q odamga eng foydali gap — o'sha karta haqida.
+        advice = i18n.t(lang, "savings_card_nudge",
+                        balance=reports.fmt_money(balance, "som"))
+
+    await msg.reply_text(
+        i18n.t(lang, "savings_status",
+               balance=reports.fmt_money(balance, "som"),
+               month=reports.fmt_money(month, "som"),
+               card=i18n.t(lang, "savings_card_state_yes" if has_card
+                           else "savings_card_state_no"),
+               advice=advice or ""),
+        parse_mode=ParseMode.HTML,
+        reply_markup=None if has_card else _card_keyboard(lang))
+
+
+async def on_savings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    answer = (query.data or "").split(":", 1)[1]
+
+    state = db.CARD_BOR if answer == "bor" else db.CARD_YOQ
+    db.set_savings_card(user_id, state)
+    await query.answer()
+    await query.edit_message_text(
+        i18n.t(lang, "savings_card_done" if state == db.CARD_BOR
+               else "savings_card_later"),
+        parse_mode=ParseMode.HTML)
+
+
 async def check_budget_alerts(context: ContextTypes.DEFAULT_TYPE, user_id: int,
                               categories: set[str]) -> None:
     """Yozuv qo'shilgandan keyin byudjet oshganini tekshiradi.
@@ -2378,6 +2470,82 @@ async def job_winback(context: ContextTypes.DEFAULT_TYPE) -> None:
     log.info("Qaytarish xabari: %s ta yuborildi", sent)
 
 
+async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Oyning OXIRGI kunida 18:00 da jamg'arma eslatmasi.
+
+    Vazifa har kuni 18:00 da uyg'onadi va oxirgi kun emasligini ko'rsa
+    darrov chiqib ketadi. Sababi: oyning oxirgi kuni 28, 29, 30 yoki 31
+    bo'ladi — buni cron ifodasi bilan to'g'ri yozib bo'lmaydi.
+
+    Matn har bir odamga MOSLAB yuboriladi: umumiy "jamg'aring" degan
+    gap allaqachon jamg'arayotgan odam uchun shovqin, jamg'armagan odam
+    uchun esa juda mavhum. Shuning uchun har kimga o'z raqami ko'rsatiladi.
+    """
+    today_ = datetime.now(config.TZ).date()
+    tomorrow = today_ + timedelta(days=1)
+    if tomorrow.month == today_.month:
+        return                                  # hali oyning oxiri emas
+
+    month = today_.strftime("%Y-%m")
+    rows = db.users_for_savings_reminder()
+    if not rows:
+        return
+
+    sent = 0
+    for r in rows:
+        user_id = r["user_id"]
+        lang = r["lang"]
+        income, saved = r["income"], r["saved"]
+        balance = r["balance"]
+        target = income * config.SAVINGS_RATE
+
+        try:
+            if income <= 0:
+                text = i18n.t(lang, "savings_month_no_income",
+                              balance=reports.fmt_money(balance, "som"))
+            elif saved <= 0:
+                text = i18n.t(lang, "savings_month_none",
+                              income=reports.fmt_money(income, "som"),
+                              ten=reports.fmt_money(target, "som"),
+                              ten_plain=f"{int(target):,}".replace(",", " "))
+            elif saved < target:
+                text = i18n.t(lang, "savings_month_low",
+                              income=reports.fmt_money(income, "som"),
+                              saved=reports.fmt_money(saved, "som"),
+                              percent=f"{saved / income * 100:.0f}",
+                              balance=reports.fmt_money(balance, "som"),
+                              gap=reports.fmt_money(target - saved, "som"))
+            else:
+                # Qoidani bajargan odamga navbatdagi foydali gap —
+                # alohida karta yoki zaxira fondi o'lchovi.
+                if r["card_state"] != db.CARD_BOR:
+                    extra = i18n.t(lang, "savings_card_nudge",
+                                   balance=reports.fmt_money(balance, "som"))
+                else:
+                    extra = _cushion_line(user_id, lang, balance)
+                text = i18n.t(lang, "savings_month_good",
+                              income=reports.fmt_money(income, "som"),
+                              saved=reports.fmt_money(saved, "som"),
+                              percent=f"{saved / income * 100:.0f}",
+                              balance=reports.fmt_money(balance, "som"),
+                              extra=extra or "")
+
+            # Kartasi hali so'ralmagan bo'lsa — shu xabarga tugma ilashtiramiz.
+            markup = (_card_keyboard(lang)
+                      if r["card_state"] == db.CARD_SORALMAGAN else None)
+            await context.bot.send_message(user_id, text,
+                                           parse_mode=ParseMode.HTML,
+                                           reply_markup=markup)
+            if markup is not None:
+                await asyncio.to_thread(db.mark_card_asked, user_id)
+            await asyncio.to_thread(db.mark_month_reminded, user_id, month)
+            sent += 1
+        except Exception:
+            log.info("Jamg'arma eslatmasi yuborilmadi: %s", user_id)
+        await asyncio.sleep(0.06)          # Telegram cheklovi
+    log.info("Jamg'arma eslatmasi: %s ta yuborildi", sent)
+
+
 async def job_erase_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
     """Admin panel so'ragan shaxsiy yozuvlarni o'chiradi.
 
@@ -2434,9 +2602,17 @@ def schedule_jobs(app: Application) -> None:
     jq.run_once(job_erase_queue, when=10, name="ochirish-boshlangich")
     jq.run_repeating(job_erase_queue, interval=600, first=600,
                      name="ochirish-navbati")
+    # Jamg'arma eslatmasi — oyning OXIRGI kuni 18:00 da. Har kuni 18:00
+    # da uyg'onadi va oxirgi kun emasligini ko'rsa darrov chiqadi: oyning
+    # oxirgi kuni 28/29/30/31 bo'lgani uchun cron bilan yozib bo'lmaydi.
+    jq.run_custom(job_savings_monthly,
+                  job_kwargs={"trigger": "cron", "hour": 18, "minute": 0,
+                              "timezone": config.TZ},
+                  name="jamgarma-eslatmasi")
     log.info("Rejalashtirilgan vazifalar yoqildi: eslatma (har soat), "
              "muddat ogohlantirishi (10:00), haftalik xulosa (dushanba 9:30), "
-             "qaytarish (12:00), o'chirish navbati (har 10 daqiqa)")
+             "qaytarish (12:00), o'chirish navbati (har 10 daqiqa), "
+             "jamg'arma eslatmasi (oy oxiri 18:00)")
 
 
 # --------------------------------------------------------------------------- #
@@ -2461,6 +2637,7 @@ BOT_COMMANDS = [
     ("obuna", "Obuna tariflari"),
     ("holat", "Obuna holati va bugungi limitlar"),
     ("byudjet", "Oylik byudjet qo'yish"),
+    ("jamgarma", "Shaxsiy jamg'arma va qoldiq"),
     ("eslatma", "Kunlik eslatmani sozlash"),
     ("kurs", "Dollar kursi"),
     ("taklif", "Do'st taklif qilib bepul kun olish"),
@@ -2615,6 +2792,7 @@ def main() -> None:
     app.add_handler(CommandHandler(["ochirish", "hisobniochir"], cmd_erase))
     app.add_handler(CommandHandler(["taklif", "referal"], cmd_referral))
     app.add_handler(CommandHandler(["byudjet", "budjet"], cmd_budget))
+    app.add_handler(CommandHandler(["jamgarma", "jamgʻarma", "omonat"], cmd_savings))
     app.add_handler(CommandHandler("eslatma", cmd_reminder))
     app.add_handler(CommandHandler(["kurs", "valyuta"], cmd_rate))
     app.add_handler(CommandHandler("bugun", _period_command("bugun")))
