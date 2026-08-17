@@ -24,7 +24,7 @@ import csv
 import io
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -530,6 +530,37 @@ def api_export_csv(token: str = Query(...)):
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
+def _asset_version(name: str) -> str:
+    """Fayl mazmuniga qarab qisqa versiya belgisi.
+
+    Telegram ichidagi WebView `app.js` ni juda qattiq keshlaydi va
+    ETag bilan qayta so'ramaydi. Natijasi jimgina va chalkash bo'ladi:
+    yangi `index.html` keladi (yangi tugma ko'rinadi), lekin eski
+    JavaScript ishlaydi — tugma bosiladi, hech narsa o'zgarmaydi.
+    Aynan shunday holat bir marta bo'ldi.
+
+    Mazmun hashi bo'lsa yangi fayl YANGI manzilga tushadi va kesh
+    o'zidan-o'zi chetlab o'tiladi.
+    """
+    try:
+        with open(f"static/{name}", "rb") as f:
+            return hashlib.sha1(f.read()).hexdigest()[:10]
+    except OSError:
+        return "0"
+
+
 @app.get("/")
 def index():
-    return FileResponse("static/index.html")
+    """Mini App sahifasi.
+
+    HTML ning O'ZI keshlanmaydi (`no-store`): u ichida asset
+    versiyalarini olib yuradi, ya'ni eski HTML eski JS ni ushlab
+    qolgan bo'lardi. Fayllarning o'zi esa bemalol keshlanadi —
+    manzillari mazmun bilan birga o'zgaradi.
+    """
+    with open("static/index.html", encoding="utf-8") as f:
+        html = f.read()
+    for name in ("app.js", "style.css"):
+        html = html.replace(f"/static/{name}",
+                            f"/static/{name}?v={_asset_version(name)}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
