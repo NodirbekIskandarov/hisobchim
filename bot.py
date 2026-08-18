@@ -95,162 +95,230 @@ yuboring — Telegram uni siqmaydi.
 /holat — obuna holati va bugungi limitlar"""
 
 
-GUIDE_TEXT = """📖 <b>FOYDALANISH YO'RIQNOMASI</b>
+GUIDE_TEXT = """\U0001F4D6 <b>FOYDALANISH YO'RIQNOMASI</b>
 
-━━━━━━━━━━━━━━━━━━━━
-<b>1️⃣ XARAJAT VA KIRIM YOZISH</b>
+Tanga \u2014 moliyaviy yozuvlaringizni yuritadigan bot. Xarajat va
+kirimni oddiy tilda yozasiz, qolganini bot qiladi.
 
-Shunchaki oddiy tilda yozing — bot summani, turini va
+<i>Bu yo'riqnoma uzun. Kerakli bo'limni qidirib o'qing \u2014
+buyruqlar ro'yxati uchun /buyruqlar, boshidan boshlash uchun
+/start. Bu matnni istalgan vaqtda /qollanma bilan ochasiz.</i>
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F4DD <b>1. YOZISH</b>
+
+Shunchaki oddiy tilda yozing \u2014 bot summani, turini va
 kategoriyani o'zi aniqlaydi.
 
 <b>Sonlarni qanday yozish mumkin:</b>
-• <code>ming</code> yoki <code>k</code> = 1 000 → <code>45 ming</code>, <code>20k</code>
-• <code>mln</code>, <code>million</code>, <code>lim</code> = 1 000 000 → <code>1.5 mln</code>
-• Bo'sh joy bilan → <code>1 200 000</code>
-• Birliksiz kichik son ming deb olinadi → <code>obedga 50</code> = 50 000
+\u2022 <code>ming</code> yoki <code>k</code> = 1 000 \u2192 <code>45 ming</code>, <code>20k</code>
+\u2022 <code>mln</code>, <code>million</code>, <code>lim</code> = 1 000 000 \u2192 <code>1.5 mln</code>
+\u2022 Bo'sh joy bilan \u2192 <code>1 200 000</code>
+\u2022 Birliksiz kichik son ming deb olinadi \u2192 <code>obedga 50</code> = 50 000
 
-<b>Dollar bilan yozish:</b>
-<code>$100</code>, <code>50 dollar</code>, <code>200 dollar oylik berdim</code>
-→ ming qoidasi qo'llanmaydi, son aynan yoziladi. Hisobotlarda so'm va
-dollar alohida-alohida ko'rsatiladi (kurs orqali qo'shilmaydi).
-
-<b>Bitta xabarda bir nechta yozuv:</b>
-<code>taksi 20k, kofe 25 ming, non 8 ming</code>
-→ 3 ta alohida yozuv saqlanadi
-
-<b>Kirim:</b>
+<b>Chiqim va kirim:</b>
+<code>obedga 45 ming</code>
 <code>oylik tushdi 8 mln</code>
 <code>sotuvdan 500 ming kirdi</code>
 
 <b>Qarz:</b>
 <code>Aliga 500 ming qarz berdim</code>
 <code>akamdan 1 mln qarz oldim</code>
-→ kim kimga qarzdorligi alohida kuzatiladi
+\u2192 kim kimga qarzdorligi alohida kuzatiladi
 
 <b>Shaxsiy jamg'arma:</b>
 <code>jamg'armaga 500 ming o'tkazdim</code>
 <code>omonatga 1 mln qo'ydim</code>
 <code>jamg'armadan 200 ming oldim</code>
-→ Jamg'arma <b>chiqim emas</b>: bu pul sarflanmadi, sizda
-qoldi. Shuning uchun «Farq» ga qo'shilmaydi va hisobotda
+\u2192 Jamg'arma <b>chiqim emas</b>: bu pul sarflanmadi, sizda
+qoldi. Shuning uchun \u00abFarq\u00bb ga qo'shilmaydi va hisobotda
 alohida turadi.
+
+<b>Bitta xabarda bir nechta yozuv:</b>
+<code>taksi 20k, kofe 25 ming, non 8 ming</code>
+\u2192 3 ta alohida yozuv saqlanadi
 
 <b>Sanani ko'rsatish:</b>
 <code>kecha dorixonaga 90 ming</code>
 <code>1-avgustda benzin 100 ming</code>
-Sana aytilmasa — bugungi kun.
+Sana aytilmasa \u2014 bugungi kun.
 
-━━━━━━━━━━━━━━━━━━━━
-<b>2️⃣ CHEK RASMINI YUBORISH</b> 📷
+<b>Dollarda yozish:</b>
+<code>$100</code>, <code>50 dollar</code>, <code>200 dollar oylik berdim</code>
+\u2192 bu yerda ming qoidasi qo'llanmaydi, son aynan yoziladi.
+
+Dollardagi yozuv <b>o'sha kundagi rasmiy kurs</b> bilan so'mga
+o'girilib, umumiy jamlanmaga qo'shiladi \u2014 hamyoningiz bitta.
+Hisobot pastida \u00abShundan chet el valyutasida\u00bb qatori
+qancha qismi dollarda bo'lganini ko'rsatadi.
+
+Kurs har bir yozuvda <b>o'sha kunga muhrlanadi</b>: ertaga kurs
+o'zgarsa ham o'tgan oy hisoboti o'zgarmaydi. Bugungi kursni
+/kurs ko'rsatadi (u Markaziy bankdan olinadi, qo'lda
+o'zgartirilmaydi \u2014 aks holda hisobot ishonchsiz bo'lardi).
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F4F7 <b>2. CHEK RASMINI YUBORISH</b>
 
 Chek suratini yuborsangiz, bot undagi <b>har bir mahsulotni</b>
 o'qib, kategoriyalarga ajratib bazaga yozadi.
 
 <b>Oddiy chek:</b> shunchaki rasmni yuboring.
 
-<b>Uzun chek (kadrga sig'masa) — 2 ta usul:</b>
+<b>Uzun chek (kadrga sig'masa) \u2014 2 ta usul:</b>
 
 <i>A) Albom qilib yuborish (eng qulay)</i>
-Chekni qismlarga bo'lib suratga oling → galereyadan
-hammasini belgilang → birdan yuboring. Bot ularni
+Chekni qismlarga bo'lib suratga oling \u2192 galereyadan
+hammasini belgilang \u2192 birdan yuboring. Bot ularni
 bitta chek deb qabul qiladi.
 
 <i>B) Bitta-bitta yuborish</i>
-«🧾 Uzun chek» tugmasini bosing → qismlarni ketma-ket
-yuboring → «✅ Tayyor» bosing.
+/chek buyrug'ini yuboring yoki \u00ab\U0001F9FE Uzun chek\u00bb
+tugmasini bosing \u2192 qismlarni ketma-ket yuboring \u2192
+/tayyor bosing. Bekor qilish uchun /bekor.
 
-Chek natijasidan keyin «➕ Chek davomi bor» tugmasi
-ham bor — qism esdan chiqsa, o'shani bosib qo'shasiz.
+Chek natijasidan keyin \u00ab\u2795 Chek davomi bor\u00bb tugmasi
+ham bor \u2014 qism esdan chiqsa, o'shani bosib qo'shasiz.
 
-⚠️ <b>Qismlar bir-birini takrorlasa ham bo'ladi</b> — bir xil
+\u26a0\ufe0f <b>Qismlar bir-birini takrorlasa ham bo'ladi</b> \u2014 bir xil
 qator ikki rasmda ko'rinsa, bir marta hisoblanadi.
 
-━━━━━━━━━━━━━━━━━━━━
-<b>3️⃣ ANIQLIK VA TEKSHIRUV</b> ✅
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\u2705 <b>3. ANIQLIK VA TEKSHIRUV</b>
 
 Bot mahsulotlar summasini <b>o'zi hisoblaydi</b> (AI emas) va
-chekdagi «JAMI» bilan solishtiradi:
+chekdagi \u00abJAMI\u00bb bilan solishtiradi:
 
-✅ <b>Mos</b> — summa to'g'ri o'qilgan, ishonch yuqori
-⚠️ <b>Farqli</b> — nomuvofiqlik bor. Bunda bot chekni
+\u2705 <b>Mos</b> \u2014 summa to'g'ri o'qilgan, ishonch yuqori
+\u26a0\ufe0f <b>Farqli</b> \u2014 nomuvofiqlik bor. Bunda bot chekni
    avtomatik <b>qayta o'qiydi</b>. Baribir farq qolsa,
-   sizga farq miqdori ko'rsatiladi — «📋 To'liq ro'yxat»
+   sizga farq miqdori ko'rsatiladi \u2014 \u00ab\U0001F4CB To'liq ro'yxat\u00bb
    dan tekshiring.
-ℹ️ <b>Jami ko'rinmadi</b> — chekda yakuniy summa yo'q,
+\u2139\ufe0f <b>Jami ko'rinmadi</b> \u2014 chekda yakuniy summa yo'q,
    tekshirib bo'lmadi.
 
 <b>Rasm sifati uchun maslahatlar:</b>
-• Rasmni <b>Fayl</b> sifatida yuboring (Telegram siqmaydi)
-• Yorug' joyda, to'g'ridan-to'g'ri suratga oling
-• Chek tekis yotsin, burchaklari ko'rinsin
-• Soyalar va yorqin nur tushmasin
+\u2022 Rasmni <b>Fayl</b> sifatida yuboring (Telegram siqmaydi)
+\u2022 Yorug' joyda, to'g'ridan-to'g'ri suratga oling
+\u2022 Chek tekis yotsin, burchaklari ko'rinsin
+\u2022 Soyalar va yorqin nur tushmasin
 
-━━━━━━━━━━━━━━━━━━━━
-<b>4️⃣ XATONI TUZATISH</b> 🔧
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F527 <b>4. XATONI TUZATISH</b>
 
 Har bir yozuv ostida tugmalar bor:
-• <b>✏️ Kategoriya</b> — kategoriyani almashtirish
-• <b>🗑 O'chirish</b> — yozuvni o'chirish
+\u2022 <b>\u270f\ufe0f Kategoriya</b> \u2014 kategoriyani almashtirish
+\u2022 <b>\U0001F5D1 O'chirish</b> \u2014 yozuvni o'chirish
 
 Chek uchun:
-• <b>📋 To'liq ro'yxat</b> — barcha mahsulotlar raqami bilan
-• <b>🗑 Chekni o'chirish</b> — butun chekni bir bosishda
+\u2022 <b>\U0001F4CB To'liq ro'yxat</b> \u2014 barcha mahsulotlar raqami bilan
+\u2022 <b>\U0001F5D1 Chekni o'chirish</b> \u2014 butun chekni bir bosishda
 
 Raqam bo'yicha o'chirish: <code>/ochir 12</code>
+Oxirgi yozuvlarni ko'rish: /oxirgi
 
-━━━━━━━━━━━━━━━━━━━━
-<b>5️⃣ HISOBOTLAR</b> 📊
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F4CA <b>5. HISOBOTLAR</b>
 
-Tugmalar yoki buyruqlar orqali:
 /bugun /kecha /hafta /oy /otganoy /yil
 
-Har birida: kirim, chiqim, farq, kategoriyalar
-foizli diagramma bilan va kunlik o'rtacha.
+Har birida: kirim, chiqim, farq, kategoriyalar foizli
+diagramma bilan va kunlik o'rtacha.
 
-Oylik hisobot oxirida <b>oylik baho</b> ham bor — uchta
-savol: 10% jamg'arildimi, daromaddan kam sarfladingizmi,
-qarz ko'paymadimi.
+Oylik hisobot oxirida <b>oylik baho</b> ham bor \u2014 uchta
+savol: jamg'arma foizingizni bajardingizmi, daromaddan kam
+sarfladingizmi, qarz ko'paymadimi.
 
-/oxirgi — oxirgi 12 ta yozuv
-/qarz — ochiq qarzlar ro'yxati
-/yopdim 12 — qarzni yopilgan deb belgilash
+Yillik hisobotda esa yil davomida qancha jamg'arganingiz va
+necha oyda foizni bajarganingiz ko'rsatiladi.
 
-━━━━━━━━━━━━━━━━━━━━
-<b>6️⃣ JAMG'ARMA VA BOYLIK</b> 🏦
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F3E6 <b>6. JAMG'ARMA</b>
 
 Bu bo'lim bitta oddiy qoidaga tayanadi:
 <b>topganingizning bir qismi o'zingizga qolishi kerak</b>.
 
-Standart foiz — 10%, lekin uni o'zingizga moslab
+Standart foiz \u2014 10%, lekin uni o'zingizga moslab
 o'zgartirishingiz mumkin: <code>/foiz 15</code> yoki
 <code>/foiz 5</code>. Muhimi muntazamlik, miqdor emas.
 
-/jamgarma — qoldiq, alohida karta holati va maslahat
-/foiz — jamg'arma foizini o'zgartirish
-   <code>/foiz 15</code> — daromadning 15% i
-/maqsad — jamg'arma maqsadi qo'yish
+/jamgarma \u2014 qoldiq, alohida karta holati va maslahat
+/foiz \u2014 jamg'arma foizini o'zgartirish
+/maqsad \u2014 maqsad qo'yish
    <code>/maqsad 10 mln</code> yoki <code>/maqsad 5 mln zaxira fond</code>
-/holatim — <b>sof qiymat</b>: jamg'arma + sizga qarzdorlar
-   − sizning qarzingiz. Bu oqim emas, <b>holat</b>.
-/reja — qarzdan chiqish rejasi (70/20/10)
+/holatim \u2014 <b>sof qiymat</b>: jamg'arma + sizga qarzdorlar
+   \u2212 sizning qarzingiz. Bu oqim emas, <b>holat</b>.
 
 <b>Bot o'zi nima qiladi:</b>
-• Kirim yozsangiz — o'z foizingizni hisoblab, bitta
+\u2022 Kirim yozsangiz \u2014 o'z foizingizni hisoblab, bitta
   tugma bilan jamg'armaga o'tkazishni taklif qiladi
-• Oyning oxirgi kuni 18:00 da — jamg'arma haqida eslatma
+\u2022 Oyning oxirgi kuni 18:00 da \u2014 jamg'arma haqida eslatma
   (agar o'sha oy foizni bajargan bo'lsangiz, bezovta
   qilmaydi)
-• Ketma-ket necha oy foizni bajarganingizni sanaydi
-• Jamg'armangiz o'rtacha oylik chiqimingizga necha oyga
+\u2022 Ketma-ket necha oy foizni bajarganingizni sanaydi
+\u2022 Jamg'armangiz o'rtacha oylik chiqimingizga necha oyga
   yetishini ko'rsatadi
 
 <b>Alohida karta:</b> jamg'armani kundalik kartada
-saqlamang. Bitta hisobda turgan pul «bor» bo'lib ko'rinadi
+saqlamang. Bitta hisobda turgan pul \u00abbor\u00bb bo'lib ko'rinadi
 va sezilmasdan sarflanadi. Bot sizdan bir marta so'raydi
 va ochmagan bo'lsangiz eslatib turadi.
 
-━━━━━━━━━━━━━━━━━━━━
-<b>7️⃣ SAVOL BERISH</b> 💬
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F91D <b>7. QARZLAR</b>
+
+/qarz \u2014 ochiq qarzlar ro'yxati, kim kimga qarzdorligi
+<code>/yopdim 12</code> \u2014 qarzni yopilgan deb belgilash
+
+/reja \u2014 <b>qarzdan chiqish rejasi</b>. Daromadingizni uchga
+bo'ladi: 70% yashashga, 20% qarzni uzishga, 10% baribir
+jamg'armaga. Shu tartibda necha oyda qarzdan chiqishingizni
+hisoblab beradi.
+
+Nega qarz bo'lsa ham jamg'ariladi: hammasini qarzga
+bersangiz, kutilmagan xarajat chiqqan kuni yana qarz olasiz
+va aylana yopilmaydi.
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F4B0 <b>8. BYUDJET VA ESLATMA</b>
+
+<b>Byudjet</b> \u2014 kategoriyaga oylik chegara qo'yasiz, oshib
+ketsa bot ogohlantiradi:
+<code>/byudjet oziq-ovqat 2 mln</code>
+<code>/byudjet transport 500 ming</code>
+<code>/byudjet transport o'chir</code> \u2014 olib tashlash
+
+/byudjet \u2014 hozirgi chegaralar va qancha sarflanganini
+ko'rsatadi. Ogohlantirish <b>80%</b> va <b>100%</b> da
+bir martadan keladi.
+
+<b>Kunlik eslatma</b> \u2014 /eslatma bilan soatni tanlaysiz.
+Har kuni o'sha soatda bot bugungi xulosani yuboradi va
+yozishni eslatadi. Kerak bo'lmasa o'chirib qo'yasiz.
+
+/kurs \u2014 bugungi dollar kursi.
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F4F1 <b>9. MINI APP (grafikli panel)</b>
+
+Menyudagi tugma yoki /panel orqali ochiladi. Bu botning
+ichidagi to'liq ilova:
+
+\u2022 <b>Doira diagramma</b> \u2014 kirim/chiqim nisbati va farqi
+\u2022 <b>Davrlar</b> \u2014 kun, hafta, oy, yil; oldinga va
+  orqaga yurish mumkin
+\u2022 <b>Yorliqlar</b> \u2014 Hammasi, Kirim, Chiqim, Qarz,
+  Jamg'arma
+\u2022 <b>Valyuta</b> \u2014 hammasi, so'm yoki dollar alohida
+\u2022 <b>Kategoriyalar</b> \u2014 foizi va soni bilan; bosilsa
+  o'sha kategoriyaning yozuvlari chiqadi
+\u2022 <b>Qidiruv</b> \u2014 izoh, kategoriya yoki ism bo'yicha
+\u2022 <b>Yozuv qo'shish</b> \u2014 pastdagi \u00ab+\u00bb tugmasi
+\u2022 <b>Jamg'arma bo'limi</b> \u2014 qoldiq, maqsad va unga
+  qancha qolgani
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F4AC <b>10. SAVOL BERISH</b>
 
 Shunchaki savol yozing:
 <code>bu oy eng ko'p nimaga pul ketdi?</code>
@@ -259,22 +327,55 @@ Shunchaki savol yozing:
 <code>kimga qancha qarzim bor?</code>
 
 Jamlanmalarni dastur aniq hisoblaydi, AI faqat
-tushuntiradi — shuning uchun sonlar to'g'ri bo'ladi.
+tushuntiradi \u2014 shuning uchun sonlar to'g'ri bo'ladi.
 
-━━━━━━━━━━━━━━━━━━━━
-<b>8️⃣ EKSPORT VA MAXFIYLIK</b> 📤
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F48E <b>11. OBUNA VA LIMITLAR</b>
 
-/csv — barcha yozuvlar Excel'da ochiladigan fayl
-ko'rinishida. Chek yozuvlari «chek» ustuni bo'yicha
+/obuna \u2014 tariflar va to'lov. To'lovdan keyin chek
+suratini yuborasiz, admin tasdiqlaydi.
+
+/holat \u2014 obunangiz qachon tugashi va <b>bugungi
+limitlaringiz</b>. Har kuni AI chaqiruvlariga chegara bor \u2014
+limit tugasa ertaga yangilanadi.
+
+/taklif \u2014 do'stingizni taklif qiling. U bot bilan
+ishlashni boshlasa, <b>ikkalangizga ham bepul kun</b>
+qo'shiladi.
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F514 <b>12. BOT O'ZI YUBORADIGAN XABARLAR</b>
+
+So'ramasangiz ham keladigan xabarlar \u2014 bilib turing:
+
+\u2022 <b>Kunlik xulosa</b> \u2014 /eslatma da tanlagan soatingizda
+\u2022 <b>Haftalik xulosa</b> \u2014 dushanba ertalab, o'tgan hafta
+\u2022 <b>Jamg'arma eslatmasi</b> \u2014 oyning oxirgi kuni 18:00 da
+\u2022 <b>Byudjet ogohlantirishi</b> \u2014 80% va 100% ga yetganda
+\u2022 <b>Obuna tugashi</b> \u2014 tugashiga bir necha kun qolganda
+\u2022 <b>Ketma-ket kunlar</b> \u2014 7, 30 va 100 kunlik
+  to'xtovsiz yozuvda tabrik
+
+Ortiqcha tuyulsa /eslatma dan kunlik xabarni o'chiring.
+
+\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
+\U0001F512 <b>13. MA'LUMOT, MAXFIYLIK VA SOZLAMALAR</b>
+
+/csv \u2014 barcha yozuvlar Excel'da ochiladigan fayl
+ko'rinishida. Chek yozuvlari \u00abchek\u00bb ustuni bo'yicha
 guruhlangan bo'ladi.
 
 <b>Yozuvlaringizni sizdan boshqa hech kim ko'rmaydi.</b>
 Summalar, kategoriyalar va izohlar alohida shifrlangan
 bazada saqlanadi va uning kaliti admin panelda umuman
-yo'q — ya'ni bu va'da emas, texnik to'siq.
+yo'q \u2014 ya'ni bu va'da emas, texnik to'siq.
 
-/maxfiylik — to'liq siyosat
-/ochirish — hisobni va butun tarixni butunlay o'chirish"""
+/til \u2014 til almashtirish (o'zbekcha / ruscha)
+/buyruqlar \u2014 barcha buyruqlar bo'limlari bilan
+/maxfiylik \u2014 to'liq maxfiylik siyosati
+/shartlar \u2014 xizmat shartlari va to'lov qoidalari
+/ochirish \u2014 hisobni va butun tarixni butunlay o'chirish
+   (tasdiq so'raladi, qaytarib bo'lmaydi)"""
 
 
 # --------------------------------------------------------------------------- #
