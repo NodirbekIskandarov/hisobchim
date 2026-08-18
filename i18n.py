@@ -722,7 +722,7 @@ T = {
         "uz": ("🏦 <b>Oy tugayapti — bir daqiqa gaplashamiz</b>\n\n"
                "Bu oy daromadingiz: <b>{income}</b>\n"
                "Jamg'armaga qo'yganingiz: <b>0</b>\n\n"
-               "Oddiy qoida: <b>topganingizning kamida 10 % i "
+               "Oddiy qoida: <b>topganingizning kamida {pct} % i "
                "o'zingizga qolishi kerak</b>. Sizda bu — <b>{ten}</b>.\n\n"
                "Ko'pchilik «oyning oxirida ortsa jamg'araman» deydi. "
                "Hech qachon ortmaydi — xarajat topilaveradi. Shuning "
@@ -733,7 +733,7 @@ T = {
         "ru": ("🏦 <b>Месяц заканчивается — на минуту о важном</b>\n\n"
                "Ваш доход за месяц: <b>{income}</b>\n"
                "Отложено в накопления: <b>0</b>\n\n"
-               "Простое правило: <b>минимум 10 % заработанного должно "
+               "Простое правило: <b>минимум {pct} % заработанного должно "
                "оставаться вам</b>. У вас это — <b>{ten}</b>.\n\n"
                "Многие говорят «отложу, если останется в конце месяца». "
                "Не остаётся никогда — расходы найдутся. Поэтому порядок "
@@ -748,33 +748,33 @@ T = {
                "Daromad: <b>{income}</b>\n"
                "Jamg'arma: <b>{saved}</b> — daromadingizning <b>{percent}%</b> i\n"
                "Umumiy jamg'armangiz: <b>{balance}</b>\n\n"
-               "Boshladingiz — eng qiyini shu edi. 10 % ga yetish uchun "
+               "Boshladingiz — eng qiyini shu edi. {pct} % ga yetish uchun "
                "yana <b>{gap}</b> kerak.\n\n"
-               "Nega aynan 10 %: bu miqdor turmushni sezilarli "
+               "Nega aynan {pct} %: bu miqdor turmushni sezilarli "
                "o'zgartirmaydi, lekin bir yilda bir oylik daromadga "
                "aylanadi."),
         "ru": ("🏦 <b>Итог накоплений за месяц</b>\n\n"
                "Доход: <b>{income}</b>\n"
                "Отложено: <b>{saved}</b> — это <b>{percent}%</b> дохода\n"
                "Всего накоплений: <b>{balance}</b>\n\n"
-               "Вы начали — это было самым трудным. До 10 % не хватает "
+               "Вы начали — это было самым трудным. До {pct} % не хватает "
                "<b>{gap}</b>.\n\n"
-               "Почему именно 10 %: эта доля почти не меняет образ "
+               "Почему именно {pct} %: эта доля почти не меняет образ "
                "жизни, но за год превращается в месячный доход."),
     },
     # Daromadi yo'q oy
     "savings_month_no_income": {
         "uz": ("🏦 <b>Oy tugayapti</b>\n\n"
-               "Bu oy daromad yozmagansiz, shuning uchun 10 % ni "
+               "Bu oy daromad yozmagansiz, shuning uchun {pct} % ni "
                "hisoblay olmadim.\n\n"
                "Umumiy jamg'armangiz: <b>{balance}</b>\n\n"
-               "Daromad kelganda uni yozib qo'ying — men 10 % ni o'zim "
+               "Daromad kelganda uni yozib qo'ying — men {pct} % ni o'zim "
                "hisoblab, eslatib turaman."),
         "ru": ("🏦 <b>Месяц заканчивается</b>\n\n"
-               "В этом месяце вы не записывали доход, поэтому 10 % "
+               "В этом месяце вы не записывали доход, поэтому {pct} % "
                "посчитать не удалось.\n\n"
                "Всего накоплений: <b>{balance}</b>\n\n"
-               "Запишите доход, когда он появится — я сам посчитаю 10 % "
+               "Запишите доход, когда он появится — я сам посчитаю {pct} % "
                "и напомню."),
     },
 
@@ -868,12 +868,12 @@ T = {
     # payt: odam uni hali sarflamagan va qaror qabul qilish oson.
     "savings_nudge_now": {
         "uz": ("💰 <b>{income}</b> kirim yozildi.\n\n"
-               "Undan <b>10 % — {ten}</b>.\n\n"
+               "Undan <b>{pct} % — {ten}</b>.\n\n"
                "«Avval o'zingizga to'lang»: shu qismni hoziroq "
                "jamg'armaga o'tkazsangiz, qolganiga yashash sezilmaydi. "
                "Oy oxirida esa hech narsa ortmaydi — xarajat topilaveradi."),
         "ru": ("💰 Записан доход <b>{income}</b>.\n\n"
-               "10 % от него — <b>{ten}</b>.\n\n"
+               "{pct} % от него — <b>{ten}</b>.\n\n"
                "«Сначала заплатите себе»: если переведёте эту часть в "
                "накопления прямо сейчас, жизнь на остальное не изменится. "
                "А в конце месяца не остаётся ничего — расходы найдутся."),
@@ -889,8 +889,81 @@ T = {
 
     # ---- Jamg'arma seriyasi ----
     "savings_streak": {
-        "uz": "\n\n🔥 Ketma-ket <b>{n} oy</b> 10 % qoidasini bajaryapsiz.",
-        "ru": "\n\n🔥 <b>{n} мес.</b> подряд выполняете правило 10 %.",
+        "uz": "\n\n🔥 Ketma-ket <b>{n} oy</b> {pct} % qoidasini bajaryapsiz.",
+        "ru": "\n\n🔥 <b>{n} мес.</b> подряд выполняете правило {pct} %.",
+    },
+
+    # ---- Jamg'arma foizi ----
+    #
+    # Foiz har kimda o'zi bo'ladi: kimdir 5 % dan boshlaydi, kimdir
+    # 20 % ajrata oladi. Qat'iy 10 % ni majburlash foydasiz — bajara
+    # olmagan odam butun eslatmani o'chirib qo'yadi.
+    "rate_help": {
+        "uz": ("\u2696\ufe0f <b>Jamg'arma foizi</b>\n\n"
+               "Hozirgi foizingiz: <b>{pct}%</b>\n\n"
+               "Har oy daromadingizning shuncha qismini jamg'armaga "
+               "ajratishni maqsad qilasiz. Bot shu foizga qarab "
+               "hisoblaydi va eslatadi.\n\n"
+               "<b>O'zgartirish:</b>\n"
+               "<code>/foiz 15</code> \u2014 daromadning 15% i\n"
+               "<code>/foiz 5</code> \u2014 kamroq, lekin muntazam\n\n"
+               "<i>Boshlash uchun 10% qulay: turmushni sezilarli "
+               "o'zgartirmaydi, lekin bir yilda bir oylik daromadga "
+               "aylanadi. Og'ir bo'lsa 5% dan boshlang \u2014 muhimi "
+               "muntazamlik, miqdor emas.</i>"),
+        "ru": ("\u2696\ufe0f <b>\u041f\u0440\u043e\u0446\u0435\u043d\u0442 "
+               "\u043d\u0430\u043a\u043e\u043f\u043b\u0435\u043d\u0438\u0439</b>\n\n"
+               "\u0421\u0435\u0439\u0447\u0430\u0441 \u0443 \u0432\u0430\u0441: "
+               "<b>{pct}%</b>\n\n"
+               "\u0421\u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0442 "
+               "\u0434\u043e\u0445\u043e\u0434\u0430 \u0432\u044b "
+               "\u043f\u043b\u0430\u043d\u0438\u0440\u0443\u0435\u0442\u0435 "
+               "\u043e\u0442\u043a\u043b\u0430\u0434\u044b\u0432\u0430\u0442\u044c "
+               "\u043a\u0430\u0436\u0434\u044b\u0439 \u043c\u0435\u0441\u044f\u0446. "
+               "\u0411\u043e\u0442 \u0441\u0447\u0438\u0442\u0430\u0435\u0442 \u0438 "
+               "\u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u0435\u0442 \u043f\u043e "
+               "\u044d\u0442\u043e\u043c\u0443 \u043f\u0440\u043e\u0446\u0435\u043d\u0442\u0443.\n\n"
+               "<b>\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c:</b>\n"
+               "<code>/foiz 15</code> \u2014 15% \u0434\u043e\u0445\u043e\u0434\u0430\n"
+               "<code>/foiz 5</code> \u2014 \u043c\u0435\u043d\u044c\u0448\u0435, "
+               "\u043d\u043e \u0440\u0435\u0433\u0443\u043b\u044f\u0440\u043d\u043e\n\n"
+               "<i>\u0414\u043b\u044f \u043d\u0430\u0447\u0430\u043b\u0430 "
+               "\u0443\u0434\u043e\u0431\u043d\u043e 10%: \u043f\u043e\u0447\u0442\u0438 "
+               "\u043d\u0435 \u043c\u0435\u043d\u044f\u0435\u0442 \u043e\u0431\u0440\u0430\u0437 "
+               "\u0436\u0438\u0437\u043d\u0438, \u043d\u043e \u0437\u0430 \u0433\u043e\u0434 "
+               "\u043f\u0440\u0435\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044f \u0432 "
+               "\u043c\u0435\u0441\u044f\u0447\u043d\u044b\u0439 \u0434\u043e\u0445\u043e\u0434. "
+               "\u0422\u044f\u0436\u0435\u043b\u043e \u2014 \u043d\u0430\u0447\u043d\u0438\u0442\u0435 "
+               "\u0441 5%: \u0432\u0430\u0436\u043d\u0430 "
+               "\u0440\u0435\u0433\u0443\u043b\u044f\u0440\u043d\u043e\u0441\u0442\u044c, "
+               "\u0430 \u043d\u0435 \u0440\u0430\u0437\u043c\u0435\u0440.</i>"),
+    },
+    "rate_set": {
+        "uz": ("\u2705 Jamg'arma foizi: <b>{pct}%</b>\n\n"
+               "Endi barcha hisob-kitob va eslatmalar shu foizga "
+               "qarab bo'ladi.{example}"),
+        "ru": ("\u2705 \u041f\u0440\u043e\u0446\u0435\u043d\u0442 "
+               "\u043d\u0430\u043a\u043e\u043f\u043b\u0435\u043d\u0438\u0439: "
+               "<b>{pct}%</b>\n\n"
+               "\u0422\u0435\u043f\u0435\u0440\u044c \u0432\u0441\u0435 "
+               "\u0440\u0430\u0441\u0447\u0451\u0442\u044b \u0438 "
+               "\u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u043d\u0438\u044f "
+               "\u0431\u0443\u0434\u0443\u0442 \u043f\u043e \u044d\u0442\u043e\u043c\u0443 "
+               "\u043f\u0440\u043e\u0446\u0435\u043d\u0442\u0443.{example}"),
+    },
+    "rate_example": {
+        "uz": "\n\nOxirgi oylik daromadingizdan bu \u2014 <b>{amount}</b>.",
+        "ru": ("\n\n\u041e\u0442 \u0434\u043e\u0445\u043e\u0434\u0430 \u0437\u0430 "
+               "\u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0439 "
+               "\u043c\u0435\u0441\u044f\u0446 \u044d\u0442\u043e \u2014 "
+               "<b>{amount}</b>."),
+    },
+    "rate_bad": {
+        "uz": ("Foiz <b>1</b> dan <b>90</b> gacha bo'lishi kerak.\n\n"
+               "Masalan: <code>/foiz 10</code>"),
+        "ru": ("\u041f\u0440\u043e\u0446\u0435\u043d\u0442 \u0434\u043e\u043b\u0436\u0435\u043d "
+               "\u0431\u044b\u0442\u044c \u043e\u0442 <b>1</b> \u0434\u043e <b>90</b>.\n\n"
+               "\u041d\u0430\u043f\u0440\u0438\u043c\u0435\u0440: <code>/foiz 10</code>"),
     },
 
     # ---- Jamg'arma maqsadi ----
@@ -994,10 +1067,10 @@ T = {
     },
     "debt_plan_none": {
         "uz": ("✅ Ochiq qarzingiz yo'q.\n\n"
-               "Qarzsiz odam daromadining 10 % ini emas, imkoni boricha "
+               "Qarzsiz odam daromadining {pct} % ini emas, imkoni boricha "
                "ko'proq qismini jamg'armaga yo'naltirishi mumkin."),
         "ru": ("✅ Открытых долгов нет.\n\n"
-               "Без долгов можно откладывать не 10 %, а столько, "
+               "Без долгов можно откладывать не {pct} %, а столько, "
                "сколько позволяет доход."),
     },
     "debt_plan_no_income": {

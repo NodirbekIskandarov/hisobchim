@@ -167,11 +167,12 @@ def summary_text(user_id: int, period: str) -> str:
     # ulushi ko'rsatiladi — kitobdagi 10 % qoidasi shu joyda ko'rinadi.
     jamgardim = t[config.KIND_JAMGARMA] - t[config.KIND_JAMGARMA_YECHDIM]
     if jamgardim:
+        rate = db.savings_rate(user_id)
         lines.append("")
         share = f" — daromadning {jamgardim / kirim * 100:.0f}%i" if kirim > 0 else ""
         lines.append(f"🏦 Jamg'arma: {fmt_money(jamgardim)}{share}")
-        if kirim > 0 and jamgardim >= kirim * config.SAVINGS_RATE:
-            lines.append("<i>✅ 10% qoidasi bajarildi</i>")
+        if kirim > 0 and jamgardim >= kirim * rate:
+            lines.append(f"<i>✅ {rate * 100:.0f}% qoidasi bajarildi</i>")
 
     if chiqim and days >= 2:
         lines.append("")
@@ -181,13 +182,13 @@ def summary_text(user_id: int, period: str) -> str:
     # Hisobot matni bu faylda o'zbekcha yozilgan (butun fayl shunday),
     # shuning uchun quyidagi bo'limlar ham shu yerda turadi.
     if period in ("oy", "otgan_oy"):
-        text += _monthly_score(t)
+        text += _monthly_score(t, db.savings_rate(user_id))
     elif period == "yil":
         text += _yearly_savings(user_id, start, end)
     return text
 
 
-def _monthly_score(t: dict) -> str:
+def _monthly_score(t: dict, rate: float) -> str:
     """Oylik uch savol: 10 % jamg'ardingmi, topganingdan kam
     sarfladingmi, qarzing ko'paymadimi.
 
@@ -208,8 +209,9 @@ def _monthly_score(t: dict) -> str:
         return ""
 
     rows = [
-        (saved >= kirim * config.SAVINGS_RATE,
-         "Daromadning 10% i jamg'arildi", "10% jamg'arilmadi"),
+        (saved >= kirim * rate,
+         f"Daromadning {rate * 100:.0f}% i jamg'arildi",
+         f"{rate * 100:.0f}% jamg'arilmadi"),
         (chiqim < kirim,
          "Daromaddan kam sarflandi", "Daromaddan ko'p sarflandi"),
         (new_debt <= 0, "Qarz ko'paymadi", "Yangi qarz olindi"),
@@ -229,14 +231,16 @@ def _yearly_savings(user_id: int, start: date, end: date) -> str:
     if saved <= 0:
         return ""
     income = sum(m["kirim"] for m in months)
+    rate = db.savings_rate(user_id)
     good = sum(1 for m in months
                if m["kirim"] > 0
-               and m["jamgarma"] >= m["kirim"] * config.SAVINGS_RATE)
+               and m["jamgarma"] >= m["kirim"] * rate)
     share = (f" — daromadingizning {saved / income * 100:.0f}%i"
              if income > 0 else "")
     return (f"\n\n🏦 <b>Yil davomida jamg'arma</b>\n"
             f"Jami: <b>{fmt_money(saved)}</b>{share}\n"
-            f"10% qoidasi bajarilgan oylar: <b>{good} / {len(months)}</b>")
+            f"{rate * 100:.0f}% qoidasi bajarilgan oylar: "
+            f"<b>{good} / {len(months)}</b>")
 
 
 def transaction_line(row, with_id: bool = True) -> str:

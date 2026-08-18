@@ -374,6 +374,7 @@ def api_savings(user: dict = Depends(current_user)):
 
     out = {
         "balance": balance,
+        "rate": db.savings_rate(uid),
         "goal": goal,
         "goal_note": prof.get("goal_note") or "",
         "streak": db.savings_streak(uid),

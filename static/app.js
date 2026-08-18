@@ -553,6 +553,12 @@
    * ikkalasi har xil savolga javob beradi va aralashtirilsa
    * chalkashlik chiqadi.
    */
+  /** 0.1 -> "10%", 0.125 -> "12.5%". Foiz har kimda o'zi bo'ladi. */
+  function pctText(rate) {
+    const v = (rate || 0.1) * 100;
+    return (Math.abs(v - Math.round(v)) < 0.05 ? v.toFixed(0) : v.toFixed(1)) + "%";
+  }
+
   function renderSavingsBlock(hadMovement) {
     const s = state.savings;
     if (!s) return "";
@@ -590,11 +596,13 @@
     } else {
       html += '<div class="hint-row">Maqsad qo\'yilmagan. Botda: '
             + '<b>/maqsad 10 mln</b></div>';
+      html += `<div class="hint-row">Jamg'arma foizingiz: `
+            + `<b>${pctText(s.rate)}</b>. O'zgartirish: <b>/foiz 15</b></div>`;
     }
 
     if (s.streak >= 2) {
       html += `<div class="hint-row">🔥 Ketma-ket <b>${s.streak} oy</b> `
-            + "10% qoidasini bajaryapsiz</div>";
+            + `${pctText(s.rate)} qoidasini bajaryapsiz</div>`;
     }
     if (!hadMovement) {
       html += '<div class="hint-row">Bu davrda harakat yo\'q. Qo\'shish: '

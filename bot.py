@@ -219,9 +219,15 @@ qarz ko'paymadimi.
 <b>6️⃣ JAMG'ARMA VA BOYLIK</b> 🏦
 
 Bu bo'lim bitta oddiy qoidaga tayanadi:
-<b>topganingizning kamida 10% i o'zingizga qolishi kerak</b>.
+<b>topganingizning bir qismi o'zingizga qolishi kerak</b>.
+
+Standart foiz — 10%, lekin uni o'zingizga moslab
+o'zgartirishingiz mumkin: <code>/foiz 15</code> yoki
+<code>/foiz 5</code>. Muhimi muntazamlik, miqdor emas.
 
 /jamgarma — qoldiq, alohida karta holati va maslahat
+/foiz — jamg'arma foizini o'zgartirish
+   <code>/foiz 15</code> — daromadning 15% i
 /maqsad — jamg'arma maqsadi qo'yish
    <code>/maqsad 10 mln</code> yoki <code>/maqsad 5 mln zaxira fond</code>
 /holatim — <b>sof qiymat</b>: jamg'arma + sizga qarzdorlar
@@ -229,12 +235,12 @@ Bu bo'lim bitta oddiy qoidaga tayanadi:
 /reja — qarzdan chiqish rejasi (70/20/10)
 
 <b>Bot o'zi nima qiladi:</b>
-• Kirim yozsangiz — 10% ni hisoblab, bitta tugma bilan
-  jamg'armaga o'tkazishni taklif qiladi
+• Kirim yozsangiz — o'z foizingizni hisoblab, bitta
+  tugma bilan jamg'armaga o'tkazishni taklif qiladi
 • Oyning oxirgi kuni 18:00 da — jamg'arma haqida eslatma
-  (agar o'sha oy 10% ni bajargan bo'lsangiz, bezovta
+  (agar o'sha oy foizni bajargan bo'lsangiz, bezovta
   qilmaydi)
-• Ketma-ket necha oy 10% ni bajarganingizni sanaydi
+• Ketma-ket necha oy foizni bajarganingizni sanaydi
 • Jamg'armangiz o'rtacha oylik chiqimingizga necha oyga
   yetishini ko'rsatadi
 
@@ -720,6 +726,26 @@ async def cmd_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text(
             chunk, parse_mode=ParseMode.HTML, reply_markup=main_menu(lang_of(update.effective_user.id, context))
         )
+
+
+async def cmd_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/buyruqlar — barcha buyruqlar bo'limlarga ajratilgan holda.
+
+    Telegram menyusi guruhlashni qo'llab-quvvatlamaydi, shuning uchun
+    to'liq va tartibli ro'yxat shu yerda beriladi: odam /maqsad qaysi
+    bo'limga tegishligini bir qarashda ko'radi.
+    """
+    lines = ["\U0001F4CB <b>BUYRUQLAR</b>"]
+    for icon, title, items in COMMAND_SECTIONS:
+        lines.append("")
+        lines.append(f"{icon} <b>{title}</b>")
+        for name, desc in items:
+            lines.append(f"/{name} \u2014 {desc}")
+    lines.append("")
+    lines.append("<i>Yozuv qo\'shish uchun buyruq kerak emas \u2014 "
+                 "shunchaki yozing: <code>obedga 45 ming</code></i>")
+    await update.effective_message.reply_text(
+        "\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2242,6 +2268,12 @@ async def on_savings_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode=ParseMode.HTML)
 
 
+def _pct(rate: float) -> str:
+    """0.10 -> "10", 0.125 -> "12.5". Matnlarda foiz shu ko'rinishda."""
+    value = rate * 100
+    return f"{value:.0f}" if abs(value - round(value)) < 0.05 else f"{value:.1f}"
+
+
 def _goal_bar(share: float, width: int = 12) -> str:
     filled = max(0, min(width, round(share * width)))
     return "█" * filled + "░" * (width - filled)
@@ -2284,10 +2316,11 @@ async def offer_savings_split(context: ContextTypes.DEFAULT_TYPE, user_id: int,
             db.savings_in_period, user_id, first, now)
     except Exception:
         return
-    if month_income > 0 and month_saved >= month_income * config.SAVINGS_RATE:
+    rate = await asyncio.to_thread(db.savings_rate, user_id)
+    if month_income > 0 and month_saved >= month_income * rate:
         return                             # bu oy qoida allaqachon bajarilgan
 
-    ten = round(income * config.SAVINGS_RATE)
+    ten = round(income * rate)
     if ten < 1000:
         return                             # arzimas summa uchun bezovta qilmaymiz
 
@@ -2295,7 +2328,7 @@ async def offer_savings_split(context: ContextTypes.DEFAULT_TYPE, user_id: int,
     _savings_offer.set(user_id, ten)
     money = reports.fmt_money(ten, "som")
     await message.reply_text(
-        i18n.t(lang, "savings_nudge_now",
+        i18n.t(lang, "savings_nudge_now", pct=_pct(rate),
                income=reports.fmt_money(income, "som"), ten=money),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
@@ -2327,7 +2360,9 @@ async def after_savings_entry(context: ContextTypes.DEFAULT_TYPE, user_id: int,
         parts.append(block)
     streak = await asyncio.to_thread(db.savings_streak, user_id)
     if streak >= 2:
-        parts.append(i18n.t(lang, "savings_streak", n=streak).strip())
+        parts.append(i18n.t(lang, "savings_streak", n=streak,
+                            pct=_pct(await asyncio.to_thread(
+                                db.savings_rate, user_id))).strip())
     if parts:
         await message.reply_text("\n\n".join(parts), parse_mode=ParseMode.HTML)
 
@@ -2355,7 +2390,9 @@ async def on_savings_add_callback(update: Update, context: ContextTypes.DEFAULT_
         i18n.t(lang, "savings_nudge_saved",
                amount=reports.fmt_money(amount, "som"),
                balance=reports.fmt_money(balance, "som"),
-               streak=i18n.t(lang, "savings_streak", n=streak)
+               streak=i18n.t(lang, "savings_streak", n=streak,
+                             pct=_pct(await asyncio.to_thread(
+                                 db.savings_rate, user_id)))
                if streak >= 2 else ""),
         parse_mode=ParseMode.HTML)
 
@@ -2410,6 +2447,57 @@ def _goal_note_of(args: list[str]) -> str:
     return " ".join(words)[:60]
 
 
+async def cmd_savings_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/foiz — jamg'arma foizini ko'rish yoki o'zgartirish.
+
+    Foiz har kimda o'zi bo'lishi kerak: kimdir 5 % dan boshlaydi,
+    kimdir 20 % ajrata oladi. Qat'iy bitta raqamni majburlash foydasiz —
+    bajara olmagan odam eslatmani butunlay o'chirib qo'yadi.
+    """
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    msg = update.effective_message
+    args = context.args or []
+
+    if not args:
+        await msg.reply_text(
+            i18n.t(lang, "rate_help", pct=_pct(db.savings_rate(user_id))),
+            parse_mode=ParseMode.HTML)
+        return
+
+    raw = args[0].replace("%", "").replace(",", ".").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        await msg.reply_text(i18n.t(lang, "rate_bad"), parse_mode=ParseMode.HTML)
+        return
+
+    # Yuqori chegara ataylab 90: 100 % jamg'arish real emas va bunday
+    # qiymat deyarli har doim xato kiritishdan chiqadi.
+    if not 1 <= value <= 90:
+        await msg.reply_text(i18n.t(lang, "rate_bad"), parse_mode=ParseMode.HTML)
+        return
+
+    rate = value / 100
+    db.set_savings_rate(user_id, rate)
+
+    # Yangi foiz nimani anglatishini o'sha odamning O'Z raqamida
+    # ko'rsatamiz — mavhum foiz hech narsa aytmaydi.
+    example = ""
+    now = datetime.now(config.TZ).date()
+    income = db.income_in_period(user_id, now.replace(day=1), now)
+    if income <= 0:
+        prev_end = now.replace(day=1) - timedelta(days=1)
+        income = db.income_in_period(user_id, prev_end.replace(day=1), prev_end)
+    if income > 0:
+        example = i18n.t(lang, "rate_example",
+                         amount=reports.fmt_money(income * rate, "som"))
+
+    await msg.reply_text(
+        i18n.t(lang, "rate_set", pct=_pct(rate), example=example),
+        parse_mode=ParseMode.HTML)
+
+
 async def cmd_net_worth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/holatim — sof qiymat: jamg'arma + qarzdorlar − qarzim."""
     user_id = update.effective_user.id
@@ -2435,7 +2523,9 @@ async def cmd_debt_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if plan is None:
         owed = db.net_worth(user_id)["i_owe"]
         if owed <= 0:
-            await msg.reply_text(i18n.t(lang, "debt_plan_none"),
+            await msg.reply_text(
+                i18n.t(lang, "debt_plan_none",
+                       pct=_pct(db.savings_rate(user_id))),
                                  parse_mode=ParseMode.HTML)
         else:
             await msg.reply_text(
@@ -2772,14 +2862,17 @@ async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
         lang = r["lang"]
         income, saved = r["income"], r["saved"]
         balance = r["balance"]
-        target = income * config.SAVINGS_RATE
+        rate = r.get("rate") or config.SAVINGS_RATE
+        target = income * rate
 
         try:
             if income <= 0:
                 text = i18n.t(lang, "savings_month_no_income",
+                              pct=_pct(rate),
                               balance=reports.fmt_money(balance, "som"))
             elif saved <= 0:
                 text = i18n.t(lang, "savings_month_none",
+                              pct=_pct(rate),
                               income=reports.fmt_money(income, "som"),
                               ten=reports.fmt_money(target, "som"),
                               ten_plain=f"{int(target):,}".replace(",", " "))
@@ -2788,6 +2881,7 @@ async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
                 # tushmaydi (db.users_for_savings_reminder), shuning
                 # uchun bu yerga faqat kam jamg'arganlar keladi.
                 text = i18n.t(lang, "savings_month_low",
+                              pct=_pct(rate),
                               income=reports.fmt_money(income, "som"),
                               saved=reports.fmt_money(saved, "som"),
                               percent=f"{saved / income * 100:.0f}",
@@ -2883,35 +2977,64 @@ def schedule_jobs(app: Application) -> None:
 # Ishga tushirish
 # --------------------------------------------------------------------------- #
 
-BOT_COMMANDS = [
-    ("start", "Boshlash va yordam"),
-    ("qollanma", "To'liq foydalanish yo'riqnomasi"),
-    ("chek", "Uzun chekni qismlab yuborish"),
-    ("bugun", "Bugungi hisobot"),
-    ("kecha", "Kechagi hisobot"),
-    ("hafta", "Shu haftalik hisobot"),
-    ("oy", "Shu oylik hisobot"),
-    ("otganoy", "O'tgan oylik hisobot"),
-    ("yil", "Yillik hisobot"),
-    ("oxirgi", "Oxirgi yozuvlar"),
-    ("qarz", "Ochiq qarzlar"),
-    ("ochir", "Yozuvni o'chirish: /ochir 12"),
-    ("yopdim", "Qarzni yopish: /yopdim 12"),
-    ("csv", "Barcha yozuvlarni fayl qilib olish"),
-    ("obuna", "Obuna tariflari"),
-    ("holat", "Obuna holati va bugungi limitlar"),
-    ("byudjet", "Oylik byudjet qo'yish"),
-    ("jamgarma", "Shaxsiy jamg'arma va qoldiq"),
-    ("maqsad", "Jamg'arma maqsadi qo'yish"),
-    ("holatim", "Sof qiymat: jamg'arma va qarzlar"),
-    ("reja", "Qarzdan chiqish rejasi (70/20/10)"),
-    ("eslatma", "Kunlik eslatmani sozlash"),
-    ("kurs", "Dollar kursi"),
-    ("taklif", "Do'st taklif qilib bepul kun olish"),
-    ("til", "Til / Язык"),
-    ("maxfiylik", "Maxfiylik siyosati"),
-    ("shartlar", "Xizmat shartlari"),
-    ("ochirish", "Hisobni butunlay o'chirish"),
+# Buyruqlar bo'limlar bo'yicha: (belgi, bo'lim nomi, [(buyruq, tavsif)]).
+#
+# Telegram menyusi guruhlashni qo'llab-quvvatlamaydi — hamma buyruq
+# bitta ro'yxatda ko'rinadi. Shuning uchun tartib va tavsif oldidagi
+# belgi guruhning o'rnini bosadi: bir xil belgili buyruqlar yonma-yon
+# turadi va foydalanuvchi qaysi buyruq nimaga tegishligini ko'radi.
+COMMAND_SECTIONS = [
+    ("\U0001F4DD", "Yozish", [
+        ("chek", "Uzun chekni qismlab yuborish"),
+        ("ochir", "Yozuvni o'chirish: /ochir 12"),
+        ("oxirgi", "Oxirgi yozuvlar"),
+    ]),
+    ("\U0001F4CA", "Hisobotlar", [
+        ("bugun", "Bugungi hisobot"),
+        ("kecha", "Kechagi hisobot"),
+        ("hafta", "Shu haftalik hisobot"),
+        ("oy", "Shu oylik hisobot"),
+        ("otganoy", "O'tgan oylik hisobot"),
+        ("yil", "Yillik hisobot"),
+        ("csv", "Barcha yozuvlarni fayl qilib olish"),
+    ]),
+    ("\U0001F3E6", "Jamg'arma", [
+        ("jamgarma", "Qoldiq va jamg'arma holati"),
+        ("foiz", "Jamg'arma foizini belgilash: /foiz 10"),
+        ("maqsad", "Jamg'arma maqsadi: /maqsad 10 mln"),
+        ("holatim", "Sof qiymat: jamg'arma va qarzlar"),
+    ]),
+    ("\U0001F91D", "Qarzlar", [
+        ("qarz", "Ochiq qarzlar ro'yxati"),
+        ("yopdim", "Qarzni yopish: /yopdim 12"),
+        ("reja", "Qarzdan chiqish rejasi"),
+    ]),
+    ("\U0001F4B0", "Rejalashtirish", [
+        ("byudjet", "Kategoriyaga oylik chegara"),
+        ("eslatma", "Kunlik eslatmani sozlash"),
+        ("kurs", "Dollar kursi"),
+    ]),
+    ("\U0001F48E", "Obuna", [
+        ("obuna", "Tariflar va to'lov"),
+        ("holat", "Obuna holati va bugungi limitlar"),
+        ("taklif", "Do'st taklif qilib bepul kun olish"),
+    ]),
+    ("\u2699\ufe0f", "Sozlamalar", [
+        ("buyruqlar", "Barcha buyruqlar bo'limlar bilan"),
+        ("qollanma", "To'liq foydalanish yo'riqnomasi"),
+        ("til", "Til / \u042f\u0437\u044b\u043a"),
+        ("maxfiylik", "Maxfiylik siyosati"),
+        ("shartlar", "Xizmat shartlari"),
+        ("ochirish", "Hisobni butunlay o'chirish"),
+    ]),
+]
+
+# Telegram menyusi uchun yassi ro'yxat. /start eng boshida turadi,
+# qolganlari bo'lim tartibida va tavsifi bo'lim belgisi bilan.
+BOT_COMMANDS = [("start", "Boshlash va yordam")] + [
+    (name, f"{icon} {desc}")
+    for icon, _, items in COMMAND_SECTIONS
+    for name, desc in items
 ]
 
 # Botni birinchi ochganda «Start» tugmasi ustida ko'rinadi. Odam bu yerda
@@ -3064,6 +3187,7 @@ def register_handlers(app) -> None:
     """
     app.add_handler(CommandHandler(["start", "yordam", "help"], cmd_start))
     app.add_handler(CommandHandler(["qollanma", "guide"], cmd_guide))
+    app.add_handler(CommandHandler(["buyruqlar", "commands"], cmd_commands))
     app.add_handler(CommandHandler(["obuna", "tarif"], cmd_plans))
     app.add_handler(CommandHandler("holat", cmd_status))
     app.add_handler(CommandHandler("id", cmd_id))
@@ -3079,6 +3203,7 @@ def register_handlers(app) -> None:
     # ValueError beradi va bot umuman ishga tushmaydi.
     app.add_handler(CommandHandler(["jamgarma", "omonat"], cmd_savings))
     app.add_handler(CommandHandler(["maqsad", "goal"], cmd_goal))
+    app.add_handler(CommandHandler(["foiz", "percent"], cmd_savings_rate))
     app.add_handler(CommandHandler(["holatim", "sofqiymat"], cmd_net_worth))
     app.add_handler(CommandHandler(["reja", "qarzreja"], cmd_debt_plan))
     app.add_handler(CommandHandler("eslatma", cmd_reminder))

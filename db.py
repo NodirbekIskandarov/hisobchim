@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS shaxsiy.savings_profile (
     -- Oy oxiridagi eslatma qaysi oy uchun yuborilgani: "YYYY-MM".
     -- Bir oyda ikki marta yuborilib qolmasin.
     reminded_month TEXT NOT NULL DEFAULT '',
+    -- Foydalanuvchining O'Z jamg'arma foizi (0.10 = 10 %).
+    -- 0 bo'lsa umumiy standart (config.SAVINGS_RATE) ishlatiladi:
+    -- shu tufayli standart o'zgarsa, uni ataylab o'zgartirmaganlarga
+    -- yangi qiymat o'zi tegadi.
+    savings_rate  REAL NOT NULL DEFAULT 0,
     -- Jamg'arma maqsadi (asosiy valyutada). 0 — maqsad qo'yilmagan.
     goal          REAL NOT NULL DEFAULT 0,
     goal_note     TEXT NOT NULL DEFAULT '',
@@ -96,6 +101,8 @@ CARD_BOR = "bor"
 # Shaxsiy bazadagi jadvallarga keyin qo'shilgan ustunlar:
 # (jadval, ustun, SQL). Sxemadagi ta'rif bilan MOS bo'lishi shart.
 PRIVATE_TABLE_MIGRATIONS = [
+    ("savings_profile", "savings_rate",
+     "ALTER TABLE shaxsiy.savings_profile ADD COLUMN savings_rate REAL NOT NULL DEFAULT 0"),
     ("savings_profile", "goal",
      "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goal REAL NOT NULL DEFAULT 0"),
     ("savings_profile", "goal_note",
@@ -1318,9 +1325,10 @@ def savings_streak(user_id: int) -> int:
     jamg'ara olmaslik odamning aybi emas.
     """
     this_month = datetime.now(config.TZ).strftime("%Y-%m")
+    rate = savings_rate(user_id)
     streak = 0
     for row in savings_by_month(user_id):
-        ok = row["kirim"] > 0 and row["jamgarma"] >= row["kirim"] * config.SAVINGS_RATE
+        ok = row["kirim"] > 0 and row["jamgarma"] >= row["kirim"] * rate
         if row["oy"] == this_month:
             if ok:
                 streak += 1
@@ -1389,7 +1397,29 @@ def savings_profile(user_id: int) -> dict:
         return dict(row)
     return {"user_id": user_id, "card_state": CARD_SORALMAGAN, "asked_at": None,
             "answered_at": None, "nudged_at": None, "reminded_month": "",
-            "goal": 0.0, "goal_note": "", "goal_reached_at": None}
+            "savings_rate": 0.0, "goal": 0.0, "goal_note": "",
+            "goal_reached_at": None}
+
+
+def savings_rate(user_id: int) -> float:
+    """Shu odamning jamg'arma foizi (0.10 = 10 %).
+
+    Sozlanmagan bo'lsa umumiy standart qaytadi. Nol saqlash «standart»
+    degani: keyin standart o'zgarsa, uni ataylab o'zgartirmaganlarga
+    yangi qiymat o'zi tegadi.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT savings_rate FROM savings_profile WHERE user_id = ?",
+            (user_id,)).fetchone()
+    value = float(row[0]) if row and row[0] else 0.0
+    return value if value > 0 else config.SAVINGS_RATE
+
+
+def set_savings_rate(user_id: int, rate: float) -> None:
+    """Foizni saqlaydi. 0 — standartga qaytarish."""
+    with get_conn() as conn:
+        _upsert_profile(conn, user_id, savings_rate=float(rate))
 
 
 def set_savings_goal(user_id: int, amount: float, note: str = "") -> None:
@@ -1470,7 +1500,8 @@ def users_for_savings_reminder() -> list[dict]:
         # Qoidani bajargan odamga «jamg'ar» deb yozish eslatmani
         # shovqinga aylantiradi — u chetda qoladi. Bajarilganini u
         # oylik hisobotdagi «Bobil bahosi» dan ko'radi.
-        if income > 0 and saved >= income * config.SAVINGS_RATE:
+        rate = savings_rate(uid)
+        if income > 0 and saved >= income * rate:
             continue
         out.append({
             "user_id": uid,
@@ -1478,6 +1509,7 @@ def users_for_savings_reminder() -> list[dict]:
             "card_state": prof.get("card_state") or CARD_SORALMAGAN,
             "income": income,
             "saved": saved,
+            "rate": rate,
             "balance": savings_balance(uid),
         })
     return out
