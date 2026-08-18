@@ -301,8 +301,9 @@ yozishni eslatadi. Kerak bo'lmasa o'chirib qo'yasiz.
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \U0001F4F1 <b>9. MINI APP (grafikli panel)</b>
 
-Menyudagi tugma yoki /panel orqali ochiladi. Bu botning
-ichidagi to'liq ilova:
+Klaviaturadagi <b>«📊 Boshqaruv paneli»</b> tugmasini
+bosing. Xabar yozish maydoni yonidagi menyu tugmasidan ham
+ochiladi. Bu botning ichidagi to'liq ilova:
 
 \u2022 <b>Doira diagramma</b> \u2014 kirim/chiqim nisbati va farqi
 \u2022 <b>Davrlar</b> \u2014 kun, hafta, oy, yil; oldinga va
