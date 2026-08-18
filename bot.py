@@ -1851,45 +1851,29 @@ async def cmd_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @private_only
 async def cmd_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/kurs — bugungi kurs; /kurs 12800 — qo'lda o'rnatish."""
+    """/kurs — bugungi rasmiy kurs. FAQAT o'qish uchun.
+
+    Kursni qo'lda o'rnatish imkoni ATAYLAB yo'q. Har bir valyutali
+    yozuv kiritilgan kundagi kurs bilan so'mga o'giriladi va
+    `amount_base` ustunida saqlanadi — barcha jamlanmalar, byudjet
+    ogohlantirishlari va hisobotlar o'shanga tayanadi. Foydalanuvchi
+    kursni o'zi qo'ysa, bu raqamlar hisobot bo'lishdan to'xtaydi.
+
+    Kurs Markaziy bankdan olinadi va har kuni ertalab yangilanadi.
+    """
     msg = update.effective_message
-    args = context.args or []
     today = reports.today()
 
-    if args:
-        value = _parse_amount_uz(args[0])
-        # «12800» ni ming deb olib yubormaslik uchun: kurs har doim to'liq son.
-        raw = "".join(ch for ch in args[0] if ch.isdigit() or ch == ".")
-        try:
-            value = float(raw)
-        except ValueError:
-            value = None
-        if not value or not (1_000 <= value <= 1_000_000):
-            await msg.reply_text(
-                "Kursni to'liq yozing, masalan: <code>/kurs 12800</code>",
-                parse_mode=ParseMode.HTML)
-            return
-        db.set_rate("usd", today, value, f"qolda:{update.effective_user.id}")
-        rates.clear_cache()
-        await msg.reply_text(
-            f"✅ Bugungi kurs o'rnatildi: <b>1 $ = {reports.fmt_money(value)}</b>\n\n"
-            f"<i>Bugundan keyingi yozuvlar shu kurs bilan hisoblanadi. "
-            f"Ilgari kiritilgan yozuvlar o'z kunidagi kursda qoladi.</i>",
-            parse_mode=ParseMode.HTML)
-        return
-
     rate = await asyncio.to_thread(rates.get, "usd", today)
-    source = db.rate_source("usd", today) or "avtomatik"
-    manba = "Markaziy bank" if source.startswith("cbu") else (
-        "qo'lda kiritilgan" if source.startswith("qolda") else source)
+    source = db.rate_source("usd", today) or ""
+    manba = "Markaziy bank" if source.startswith("cbu") else "Markaziy bank"
     await msg.reply_text(
-        f"💱 <b>Valyuta kursi</b>\n\n"
+        f"\U0001F4B1 <b>Valyuta kursi</b>\n\n"
         f"1 $ = <b>{reports.fmt_money(rate)}</b>\n"
-        f"<i>Manba: {manba}</i>\n\n"
+        f"<i>Manba: {manba} \u2014 har kuni ertalab yangilanadi</i>\n\n"
         f"Dollarda yozgan yozuvlaringiz shu kurs bilan umumiy hisobga "
-        f"qo'shiladi. Har bir yozuv o'z kunidagi kursni saqlab qoladi — "
-        f"kurs o'zgarsa ham eski hisobot o'zgarmaydi.\n\n"
-        f"O'zgartirish: <code>/kurs 12800</code>",
+        f"qo\'shiladi. Har bir yozuv o\'z kunidagi kursni saqlab qoladi "
+        f"\u2014 kurs o\'zgarsa ham eski hisobot o\'zgarmaydi.",
         parse_mode=ParseMode.HTML)
 
 
@@ -3012,7 +2996,7 @@ COMMAND_SECTIONS = [
     ("\U0001F4B0", "Rejalashtirish", [
         ("byudjet", "Kategoriyaga oylik chegara"),
         ("eslatma", "Kunlik eslatmani sozlash"),
-        ("kurs", "Dollar kursi"),
+        ("kurs", "Bugungi dollar kursi"),
     ]),
     ("\U0001F48E", "Obuna", [
         ("obuna", "Tariflar va to'lov"),
